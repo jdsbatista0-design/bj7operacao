@@ -114,8 +114,13 @@ export async function montar(env) {
 
   /* usuários, funis e etapas */
   const usuarios = {};
+  const equipeAtiva = [];
   for (const u of (await pd(env, '/v1/users')).data || []) {
-    usuarios[u.id] = nomeCurto(u.name);
+    const nome = nomeCurto(u.name);
+    usuarios[u.id] = nome;
+    /* O histórico continua reconhecendo ex-colaboradores, mas a interface de
+       gestão recebe separadamente apenas quem está ativo no Pipedrive. */
+    if (![false, 0, '0', 'false', 'inactive'].includes(u.active_flag)) equipeAtiva.push(nome);
   }
   const funis = {};
   for (const p of await pdTodosV2(env, '/api/v2/pipelines')) funis[p.id] = funilCurto(p.name);
@@ -197,7 +202,7 @@ export async function montar(env) {
   }
 
   return {
-    negocios, resultado, ativ, mortas: MORTAS, hoje,
+    negocios, resultado, ativ, equipeAtiva: [...new Set(equipeAtiva)], mortas: MORTAS, hoje,
     janela: { ini: crs[0] || hoje, fim: hoje },
     meses,
     cobertura: {

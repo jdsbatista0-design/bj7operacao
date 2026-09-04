@@ -397,7 +397,7 @@ function calcular(){
    ...A.map(x=>x.a),
    ...D.negocios.filter(x=>noEscopo(x)&&criadoNoPer(x)).map(x=>x.d),
    ...D.resultado.filter(x=>noEscopo(x)&&(noPeriodo(x)||criadoNoPer(x))).map(x=>x.d)])]
-  .filter(Boolean).filter(n=>n!=='—');
+  .filter(colaboradorAtivo);
  const pessoas = {};
  NOMES.forEach(n=>{
   const meus = A.filter(x=>x.a===n);
@@ -470,14 +470,24 @@ function calcular(){
    já entra normalizado e não volta a aparecer na tela. */
 const APELIDO = {Jonathas:'Keth'};
 const quem = n => APELIDO[n] || n;
+/* A lista oficial vem do status dos usuários no Pipedrive. A exclusão manual
+   garante a correção imediata enquanto o cache anterior ainda estiver ativo. */
+const INATIVOS_MANUAIS = new Set(['Rafael']);
+const TEM_EQUIPE_ATIVA = Array.isArray(D.equipeAtiva) && D.equipeAtiva.length > 0;
+const EQUIPE_ATIVA = new Set((D.equipeAtiva || []).map(quem));
+const colaboradorAtivo = n => {
+ const nome = quem(n);
+ return Boolean(nome && nome!=='—' && !INATIVOS_MANUAIS.has(nome)
+   && (!TEM_EQUIPE_ATIVA || EQUIPE_ATIVA.has(nome)));
+};
 let NOMES = [];
 /* Se alguém não teve atividade no período, ainda assim precisa aparecer com zero —
    senão some do painel e o zero, que é a informação, desaparece junto. */
 const EQUIPE = () => [...new Set([
   ...D.ativ.filter(ativNoEscopo).map(x=>x.a),
-  ...D.negocios.filter(noEscopo).map(x=>x.d)])].filter(n=>n && n!=='—');
+  ...D.negocios.filter(noEscopo).map(x=>x.d)])].filter(colaboradorAtivo);
 const FRENTE = {Nicolas:'Izi — mercado e captação', Keth:'Izi — clientes e conversão',
- Gabriel:'BJ7 Painéis', Rafael:'saiu em março de 2026'};
+ Gabriel:'BJ7 Painéis'};
 const frenteDe = n => FRENTE[n] || 'sem frente definida';
 const QUENTES = ['Qualificado','Mídia Kit','Visita','Proposta'];
 
@@ -1537,7 +1547,7 @@ function viewResultado(m){
  /* --- por responsável no período --- */
  if(A.g.length || A.pc.length){
   m.append(el('<h2>Quem fechou</h2>'));
-  const donos = [...new Set([...A.g,...A.pc].map(x=>x.d))];
+  const donos = [...new Set([...A.g,...A.pc].map(x=>x.d))].filter(colaboradorAtivo);
   const rows = donos.map(d=>({d,
     g:A.g.filter(x=>x.d===d).length, p:A.pc.filter(x=>x.d===d).length,
     c:A.g.filter(x=>x.d===d).map(x=>x.c)}));
