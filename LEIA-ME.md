@@ -47,13 +47,24 @@ Configurados em `wrangler.jsonc`, em UTC. Hoje: 8 execuções por dia útil, às
 
 Para mudar, edite a linha `crons` e rode `npx wrangler deploy` de novo.
 
-## Proteger o acesso
+## Acesso restrito
 
-O Worker é público por padrão. Antes de compartilhar:
+O Worker exige usuário e senha. Eles ficam como secret na Cloudflare:
 
-Painel Cloudflare → Zero Trust → Access → Applications → Add an application →
-Self-hosted → cole o domínio do Worker → política permitindo apenas os e-mails
-do time. Sem isso, qualquer pessoa com o link vê a base de clientes inteira.
+```
+npx wrangler secret put PANEL_USER
+npx wrangler secret put PANEL_PASSWORD
+```
+
+Se qualquer um dos dois faltar, o Worker responde 503 e não serve nada. É
+proposital: melhor fora do ar do que servindo a base de clientes aberta.
+
+Para trocar a senha, rode o comando de novo com o valor novo. Para tirar o
+acesso de alguém, troque a senha e avise quem continua.
+
+Se preferir login por e-mail em vez de senha compartilhada, dá para usar
+Zero Trust → Access → Applications sobre o mesmo domínio. Os dois funcionam
+juntos.
 
 ## O que o Worker faz a cada sincronização
 
