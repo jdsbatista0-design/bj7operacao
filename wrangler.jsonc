@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "central-comercial-bj7",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-01",
+
+  // Horários em UTC. Brasília é UTC-3.
+  // 8 execuções por dia útil: 9h, 10h, 11h, 12h, 14h, 15h, 17h e 18h de Brasília.
+  "triggers": {
+    "crons": ["0 12,13,14,15,17,18,20,21 * * 1-5"]
+  },
+
+  "kv_namespaces": [
+    { "binding": "CENTRAL", "id": "e039927978334a34b227d94e193beab3" }
+  ],
+
+  "rules": [
+    { "type": "Text", "globs": ["**/*.html"], "fallthrough": true }
+  ],
+
+  "observability": { "enabled": true }
+}
