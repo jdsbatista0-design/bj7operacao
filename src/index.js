@@ -225,6 +225,34 @@ export default {
   },
 
   async fetch(req, env) {
+    /* Acesso restrito. Usuário e senha ficam como secret na Cloudflare:
+         npx wrangler secret put PANEL_USER
+         npx wrangler secret put PANEL_PASSWORD
+       Se qualquer um dos dois faltar, o Worker recusa tudo — é melhor ficar
+       fora do ar do que servir a base de clientes sem proteção. */
+    if (!env.PANEL_USER || !env.PANEL_PASSWORD) {
+      return new Response(
+        'Painel sem usuário e senha configurados. Grave PANEL_USER e PANEL_PASSWORD ' +
+        'como secrets antes de usar.',
+        { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+    const esperado = 'Basic ' + btoa(env.PANEL_USER + ':' + env.PANEL_PASSWORD);
+    const credencial = req.headers.get('Authorization') || '';
+    /* comparação de tempo constante: não vaza o tamanho nem o prefixo da senha */
+    let iguais = credencial.length === esperado.length;
+    for (let i = 0; i < esperado.length; i++) {
+      iguais = (credencial.charCodeAt(i) === esperado.charCodeAt(i)) && iguais;
+    }
+    if (!iguais) {
+      return new Response('Acesso restrito', {
+        status: 401,
+        headers: {
+          'WWW-Authenticate': 'Basic realm="Central Comercial BJ7"',
+          'cache-control': 'no-store',
+        },
+      });
+    }
+
     const url = new URL(req.url);
 
     /* botão Atualizar do painel */
