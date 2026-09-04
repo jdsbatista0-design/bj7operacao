@@ -82,6 +82,15 @@ nav button{background:none;border:0;padding:0 2px;height:var(--tap);font-size:15
  margin-right:16px;flex:none}
 nav button:last-child{margin-right:0}
 nav button.on{color:var(--ink);border-bottom-color:var(--teal);font-weight:600}
+.subnav{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:9px 0;
+ border-top:1px solid var(--rule)}
+.subnav::-webkit-scrollbar{display:none}
+.subnav button{flex:none;background:var(--card);border:1px solid var(--rule2);border-radius:999px;
+ height:32px;padding:0 13px;font-size:13px;color:var(--soft);cursor:pointer;white-space:nowrap}
+.subnav button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.subnav .bdg{display:inline-block;margin-left:5px;padding:0 5px;font-size:10.5px;line-height:15px;
+ border-radius:8px;background:var(--clay);color:#fff;font-weight:600}
+.subnav button.on .bdg{background:rgba(255,255,255,.28)}
 nav .bdg{display:inline-block;min-width:17px;margin-left:5px;padding:0 5px;font-size:11px;
  line-height:16px;border-radius:8px;background:var(--clay);color:#fff;text-align:center;
  font-weight:600;vertical-align:1px}
@@ -237,6 +246,19 @@ button.lnk:active{color:var(--teal)}
 .cl.mais::before{content:"+";position:absolute;margin-left:-14px;color:var(--faint)}
 .cl.tot{border-bottom:0;background:#FAFBF9;font-weight:500;color:var(--ink);border-top:1px solid var(--rule2)}
 .cl.tot span{color:var(--teal)}
+.addbar{display:flex;gap:8px;margin-top:18px}
+.addbar .search{flex:1}
+.item{display:flex;gap:10px;align-items:stretch;margin-bottom:8px}
+.item.feito{opacity:.5}
+.item.feito .nm{text-decoration:line-through}
+.item .chk{width:42px;flex:none;border:1px solid var(--rule);background:var(--card);
+ border-radius:8px;cursor:pointer;font-size:16px;color:var(--teal);line-height:1}
+.item.feito .chk{border-color:var(--teal);background:var(--teal-bg)}
+.item .row{flex:1;margin-bottom:0}
+.grp{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+ font-size:12px;color:var(--faint);font-weight:600;margin:18px 0 8px;
+ border-bottom:1px solid var(--rule);padding-bottom:5px}
+.grp span{font-weight:400;font-variant-numeric:tabular-nums}
 .okr{padding:12px 0;border-bottom:1px solid var(--rule)}
 .okr.feito{opacity:.55}
 .okr .search{width:100%;margin-bottom:6px}
@@ -343,6 +365,7 @@ textarea{width:100%;font:inherit;font-size:16px;padding:11px 12px;border:1px sol
  <div class="empresas" id="empresas"></div>
  <div class="periodo" id="periodo"></div>
  <nav id="nav"></nav>
+ <div class="subnav" id="subnav"></div>
 </div></div>
 
 <div class="wrap"><main id="main"></main>
@@ -1939,43 +1962,147 @@ function mostraCampo(r, c){
  return esc(String(v));
 }
 
+/* como cada módulo se organiza e o que ele mostra em cima —
+   contas por mês, documentos por vencimento, tarefas por situação */
+const AGRUPAR = {
+ tarefas:      {padrao:'status', ops:[['status','Situação'],['responsavel','Quem faz'],
+                 ['prioridade','Prioridade'],['','Sem agrupar']]},
+ contas:       {padrao:'mes', ops:[['mes','Mês do vencimento'],['categoria','Categoria'],
+                 ['status','Situação'],['','Sem agrupar']]},
+ juridico:     {padrao:'status', ops:[['status','Situação'],['tipo','Tipo'],['','Sem agrupar']]},
+ marketing:    {padrao:'status', ops:[['status','Situação'],['canal','Canal'],['','Sem agrupar']]},
+ documentos:   {padrao:'mes', ops:[['mes','Mês do vencimento'],['tipo','Tipo'],
+                 ['responsavel','Quem cuida'],['','Sem agrupar']]},
+ procedimentos:{padrao:'eixo', ops:[['eixo','Eixo'],['frequencia','Frequência'],
+                 ['responsavel','Dono'],['','Sem agrupar']]},
+};
+const MES_LONGO = {'01':'Janeiro','02':'Fevereiro','03':'Março','04':'Abril','05':'Maio','06':'Junho',
+ '07':'Julho','08':'Agosto','09':'Setembro','10':'Outubro','11':'Novembro','12':'Dezembro'};
+
 function viewModulo(m, mid){
  dados.registros = dados.registros || {};
  dados.registros[mid] = dados.registros[mid] || [];
  const mod = modPor(mid);
+ const principal = mod.campos.find(c=>c.principal) || mod.campos[0];
  const lista = regs(mid);
  const abertos = lista.filter(r=>emAberto(mod,r));
  const atras = lista.filter(r=>atrasado(mod,r));
- const prox = lista.filter(r=>vencendo(mod,r,15) && !atrasado(mod,r));
- const soma = mod.soma ? abertos.reduce((s,r)=>s+(+r[mod.soma]||0),0) : null;
 
  m.append(el('<p class="lede">'+esc(mod.desc)+'</p>'));
- m.append(cartoes([
-  {b:nf(abertos.length), s:'em aberto'},
-  {b:nf(atras.length), s:'com prazo vencido'},
-  {b:nf(prox.length), s:'vencendo em 15 dias'},
-  mod.soma ? {b:MOEDA(soma), s:'somado em aberto'} : {b:nf(lista.length), s:'no total, com os fechados'},
- ]));
 
- const nova = el('<button class="btn" style="margin-top:18px">Adicionar</button>');
- nova.onclick = () => {
+ /* --- cabeçalho próprio de cada módulo --- */
+ if(mid==='contas'){
+  const porMes = {};
+  abertos.forEach(r=>{ const k=(r.vencimento||'').slice(0,7)||'sem';
+    porMes[k]=(porMes[k]||0)+(+r.valor||0); });
+  const mm = Object.entries(porMes).filter(([k])=>k!=='sem').sort();
+  const total = abertos.reduce((a,r)=>a+(+r.valor||0),0);
+  const venc = atras.reduce((a,r)=>a+(+r.valor||0),0);
+  m.append(cartoes([
+   {b:MOEDA(total), s:'a pagar, no total'},
+   {b:MOEDA(venc), s:'já vencido'},
+   {b:nf(abertos.length), s:'contas em aberto'},
+   {b:mm.length? MOEDA(mm[0][1]) : 'R$ 0', s: mm.length? 'vence em '+MES_LONGO[mm[0][0].slice(5)] : 'nada agendado'}]));
+  if(mm.length>1){
+   m.append(el('<h2>Quanto sai por mês</h2>'));
+   const max = Math.max(...mm.map(([,v])=>v));
+   const bx = el('<div></div>');
+   mm.slice(0,8).forEach(([k,v])=>{
+    bx.append(el('<div style="margin-bottom:12px"><div class="hd"><span>'
+     +MES_LONGO[k.slice(5)]+' de '+k.slice(0,4)+'</span><span class="stat num">'+MOEDA(v)+'</span></div>'
+     +'<div class="bar"><i style="width:'+Math.max(v/max*100,2)+'%"></i></div></div>'));
+   });
+   m.append(bx);
+  }
+ } else if(mid==='marketing'){
+  const rodando = abertos.filter(r=>r.status==='rodando');
+  const orc = abertos.reduce((a,r)=>a+(+r.orcamento||0),0);
+  const gas = abertos.reduce((a,r)=>a+(+r.gasto||0),0);
+  const lea = abertos.reduce((a,r)=>a+(+r.leads||0),0);
+  m.append(cartoes([
+   {b:rodando.length, s:'campanhas rodando'},
+   {b:MOEDA(gas), s:'gasto de '+MOEDA(orc)+' orçado'},
+   {b:nf(lea), s:'leads gerados'},
+   {b:lea? MOEDA(gas/lea) : '—', s:'custo por lead'}]));
+  if(abertos.length){
+   m.append(el('<h2>Orçamento contra gasto</h2>'));
+   const bx = el('<div></div>');
+   abertos.forEach(r=>{
+    const o=+r.orcamento||0, g=+r.gasto||0, pct = o? Math.min(g/o*100,100) : 0;
+    bx.append(el('<div style="margin-bottom:14px"><div class="hd"><span class="nm">'
+     +esc(r.nome||'sem nome')+'</span><span class="stat num'+(o&&g>o?' warn':'')+'">'
+     +MOEDA(g)+' de '+MOEDA(o)+'</span></div>'
+     +'<div class="sub">'+esc(r.canal||'sem canal')+(r.leads? ' · '+r.leads+' leads · '
+       +MOEDA(g/r.leads)+' por lead' : ' · nenhum lead contado')+'</div>'
+     +'<div class="bar"><i class="'+(o&&g>o?'':'dim')+'" style="width:'+Math.max(pct,2)+'%"></i></div></div>'));
+   });
+   m.append(bx);
+  }
+ } else if(mid==='juridico'){
+  const risco = abertos.reduce((a,r)=>a+(+r.risco||0),0);
+  m.append(cartoes([
+   {b:abertos.length, s:'processos em andamento'},
+   {b:MOEDA(risco), s:'somado em risco'},
+   {b:atras.length, s:'com data já passada'},
+   {b:abertos.filter(r=>!r.proxima).length, s:'sem próxima data marcada'}]));
+ } else if(mid==='procedimentos'){
+  const ativos = lista.filter(r=>r.status==='ativo');
+  m.append(cartoes([
+   {b:ativos.length, s:'procedimentos ativos'},
+   {b:lista.filter(r=>r.status==='rascunho').length, s:'em rascunho'},
+   {b:ativos.filter(r=>!r.responsavel).length, s:'sem dono definido'},
+   {b:ativos.filter(r=>!(r.passos||'').trim()).length, s:'sem o passo a passo escrito'}]));
+ } else {
+  const prox = lista.filter(r=>vencendo(mod,r,15) && !atrasado(mod,r));
+  m.append(cartoes([
+   {b:nf(abertos.length), s:'em aberto'},
+   {b:nf(atras.length), s:'com prazo vencido'},
+   {b:nf(prox.length), s:'vencendo em 15 dias'},
+   {b:nf(abertos.filter(r=>!r[mod.prazo]).length), s:'sem prazo definido'}]));
+ }
+
+ /* --- adicionar rápido: escreve e Enter --- */
+ const criar = (texto) => {
   const novo = {id:'x'+Date.now(), emp: EMP.id==='grupo'?'grupo':EMP.id, criado:HOJE};
   mod.campos.forEach(c=>{ if(c.padrao) novo[c.k]=c.padrao; });
-  dados.registros[mid].unshift(novo); salvar(); render();
+  if(texto) novo[principal.k] = texto;
+  dados.registros[mid].unshift(novo); salvar();
+  return novo;
  };
- m.append(nova);
+ const add = el('<div class="addbar"><input class="search" placeholder="'+esc(principal.r)
+  +'… e Enter para criar" aria-label="Adicionar"><button class="btn">Adicionar</button></div>');
+ const inp = add.querySelector('input');
+ const fazer = (abrir) => {
+  const t = inp.value.trim();
+  const novo = criar(t);
+  inp.value='';
+  render();
+  if(!t || abrir){ const primeira = document.querySelector('#main .row[data-r="'+novo.id+'"]');
+    if(primeira) primeira.click(); }
+ };
+ inp.onkeydown = e => { if(e.key==='Enter') fazer(false); };
+ add.querySelector('button').onclick = () => fazer(true);
+ m.append(add);
 
- let fSt = 'abertos';
- const segS = el('<div class="seg" style="margin:16px 0 8px">'
-  +'<button class="on" data-s="abertos">Em aberto</button>'
-  +'<button data-s="atraso">Atrasados</button>'
-  +'<button data-s="todos">Todos</button></div>');
- const busca = el('<input class="search" type="search" placeholder="Buscar…" style="margin-bottom:10px">');
+ /* --- filtros e ordem --- */
+ const ag = AGRUPAR[mid] || {padrao:'', ops:[['','Sem agrupar']]};
+ let fSt = 'abertos', fAg = ag.padrao;
+ const barra = el('<div class="tools" style="margin-top:14px"></div>');
+ const segS = el('<div class="seg"><button class="on" data-s="abertos">Em aberto</button>'
+  +'<button data-s="atraso">Atrasados</button><button data-s="todos">Todos</button></div>');
+ const selAg = el('<select class="selmes" aria-label="Agrupar por">'
+  + ag.ops.map(([k,r])=>'<option value="'+k+'">'+r+'</option>').join('') + '</select>');
+ selAg.value = fAg;
+ const busca = el('<input class="search" type="search" placeholder="Buscar…">');
+ barra.append(segS, selAg, busca);
  const bx = el('<div></div>');
- m.append(segS, busca, bx);
+ m.append(barra, bx);
 
- const principal = mod.campos.find(c=>c.principal) || mod.campos[0];
- const resumoCampos = mod.campos.filter(c=>['select','data','dinheiro','pessoa','numero'].includes(c.t)).slice(0,4);
+ const chaveGrupo = r => {
+  if(!fAg) return '';
+  if(fAg==='mes'){ const v=r[mod.prazo]; return v ? MES_LONGO[v.slice(5,7)]+' de '+v.slice(0,4) : 'Sem data'; }
+  return r[fAg] || 'Não preenchido';
+ };
 
  const pinta = () => {
   segS.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.s===fSt));
@@ -1985,31 +2112,68 @@ function viewModulo(m, mid){
    .filter(r => fSt==='todos' ? true : fSt==='atraso' ? atrasado(mod,r) : emAberto(mod,r))
    .filter(r => !termo || mod.campos.some(c=>String(r[c.k]||'').toLowerCase().includes(termo)))
    .sort((a,b)=> (a[mod.prazo]||'9999') < (b[mod.prazo]||'9999') ? -1 : 1);
-  if(!rows.length){ bx.append(el('<div class="empty">Nada aqui '
-   + (fSt==='abertos'?'em aberto':fSt==='atraso'?'atrasado':'ainda')+'.</div>')); return; }
-  rows.forEach(r=>{
-   const atr = atrasado(mod,r), prz = r[mod.prazo];
-   linha(bx,
-    '<div class="hd"><span class="nm">'+(r[principal.k] ? esc(r[principal.k]) : '<i class="mini">sem título</i>')+'</span>'
-     +(prz? '<span class="stat num '+(atr?'warn':'')+'">'+dbr(prz)
-        +(atr? ' · atrasado '+dif(prz,HOJE)+'d' : '')+'</span>' : '<span class="stat mini">sem prazo</span>')+'</div>'
-     +'<div class="sub">'+ resumoCampos.filter(c=>c.k!==mod.prazo && r[c.k])
-        .map(c=>esc(c.r)+': '+mostraCampo(r,c)).join(' · ') +'</div>',
-    host => {
-     mod.campos.forEach(c=> campoInput(r, c, salvar, host) );
-     const ac = el('<div class="actions"><button class="btn ghost sm" data-del>Apagar</button></div>');
+  if(!rows.length){
+   bx.append(el('<div class="empty">Nada '+(fSt==='abertos'?'em aberto':fSt==='atraso'?'atrasado':'aqui')
+    +'. Escreva acima e aperte Enter para criar o primeiro.</div>'));
+   return;
+  }
+  const grupos = {};
+  rows.forEach(r=>{ const k=chaveGrupo(r); (grupos[k]=grupos[k]||[]).push(r); });
+  Object.entries(grupos).forEach(([k, itens])=>{
+   if(k) bx.append(el('<div class="grp">'+esc(k)+'<span>'+itens.length
+     + (mod.soma ? ' · '+MOEDA(itens.reduce((a,r)=>a+(+r[mod.soma]||0),0)) : '')+'</span></div>'));
+   itens.forEach(r=>{
+    const atr = atrasado(mod,r), prz = r[mod.prazo], feito = !emAberto(mod,r);
+    const cx = el('<div class="item'+(feito?' feito':'')+'"></div>');
+    const chk = el('<button class="chk" title="Concluir">'+(feito?'✓':'')+'</button>');
+    chk.onclick = e => { e.stopPropagation();
+     const cs = mod.campos.find(c=>c.k===mod.status);
+     r[mod.status] = feito ? (cs.padrao || cs.op[0]) : (mod.concluido[0]);
+     salvar(); render();
+    };
+    const corpo = el('<button class="row noborda" data-r="'+r.id+'" aria-expanded="false">'
+     +'<div class="hd"><span class="nm">'
+     +(r[principal.k] ? esc(r[principal.k]) : '<i class="mini">sem título</i>')+'</span>'
+     +(mod.soma && r[mod.soma] ? '<span class="stat num">'+MOEDA(r[mod.soma])+'</span>' : '')+'</div>'
+     +'<div class="sub">'
+     + [prz ? '<span class="'+(atr?'warn':'')+'">'+dbr(prz)+(atr?' · atrasado '+dif(prz,HOJE)+'d':'')+'</span>' : 'sem prazo',
+        r.responsavel||r.advogado||r.canal||r.tipo||r.eixo||'', r[mod.status]||'']
+       .filter(Boolean).map(x=>x).join(' · ')
+     +'</div></button>');
+    cx.append(chk, corpo);
+    bx.append(cx);
+    corpo.onclick = () => {
+     const aberto = corpo.getAttribute('aria-expanded')==='true';
+     bx.querySelectorAll('.panel').forEach(p=>p.remove());
+     bx.querySelectorAll('.row').forEach(z=>z.setAttribute('aria-expanded','false'));
+     if(aberto) return;
+     corpo.setAttribute('aria-expanded','true');
+     const p = el('<div class="panel"></div>');
+     cx.after(p);
+     mod.campos.forEach(c=> campoInput(r, c, salvar, p) );
+     const ac = el('<div class="actions">'
+       +'<button class="btn ghost sm" data-dup>Duplicar</button>'
+       +'<button class="btn ghost sm" data-del>Apagar</button></div>');
+     ac.querySelector('[data-dup]').onclick = () => {
+      const c = {...r, id:'x'+Date.now(), criado:HOJE};
+      if(c[mod.prazo]) c[mod.prazo]='';
+      dados.registros[mid].unshift(c); salvar(); render();
+     };
      ac.querySelector('[data-del]').onclick = () => {
       if(!confirm('Apagar este registro?')) return;
       dados.registros[mid] = dados.registros[mid].filter(z=>z.id!==r.id); salvar(); render();
      };
-     host.append(ac);
-    });
+     p.append(ac);
+    };
+   });
   });
  };
  segS.querySelectorAll('button').forEach(b=>b.onclick=()=>{ fSt=b.dataset.s; pinta(); });
+ selAg.onchange = () => { fAg = selAg.value; pinta(); };
  busca.oninput = pinta;
  pinta();
 }
+
 function pendencias(){
  const out = [];
  MODULOS.forEach(mod => regs(mod.id).forEach(r=>{
@@ -2039,7 +2203,7 @@ function viewAgenda(m){
 
  m.append(el('<p class="lede">Tudo que tem data e ainda não foi resolvido, de todos os módulos de '
   +esc(EMP.nome)+': tarefas, contas, documentos, processos, campanhas, procedimentos, combinados de '
-  +'reunião e objetivos. É a resposta para <b>quem precisa agir hoje</b>.</p>'));
+  +'reunião e objetivos. É a resposta para <b>o que fazer hoje</b>.</p>'));
 
  m.append(cartoes([
   {b:atras.length, s:'vencidos'},
@@ -2069,7 +2233,6 @@ function viewAgenda(m){
  if(!p.length) m.append(el('<div class="empty" style="margin-top:16px">Nada em aberto com prazo. '
   +'Comece cadastrando uma tarefa ou uma conta a pagar.</div>'));
 
- /* sem dono é o vazamento clássico */
  const semDono = p.filter(x=>!x.quem);
  if(semDono.length) m.append(el('<p class="lede" style="margin-top:20px"><b>'+semDono.length
   +'</b> pendências estão sem dono. Sem nome, ninguém faz — e na próxima reunião ninguém responde por elas.</p>'));
@@ -2686,30 +2849,49 @@ function linha(host, html, preencher){
  };
 }
 
-const ABAS = [['agenda','Agenda'],['resumo','Resumo'],['quentes','Quentes'],['leitura','Leitura'],
-              ['atividades','Atividades'],['pessoas','Pessoas'],['carteira','Carteira'],
-              ['resultado','Resultado'],['reunioes','Reuniões'],
-              ...MODULOS.map(x=>[x.id, x.nome]),
-              ['alertas','Alertas'],['matinal','Matinal']];
-let atual = 'resumo';
+/* Duas camadas: primeiro o assunto, depois a tela. Dezessete abas lado a lado
+   não se navega no celular — e a pessoa perde tempo procurando em vez de agir. */
+const GRUPOS = [
+ {id:'hoje',      rot:'Hoje',      abas:[['agenda','O que fazer'],['alertas','Alertas']]},
+ {id:'comercial', rot:'Comercial', abas:[['resumo','Resumo'],['quentes','Quentes'],
+   ['leitura','Leitura'],['atividades','Atividades'],['carteira','Carteira'],['resultado','Resultado']]},
+ {id:'pessoas',   rot:'Pessoas',   abas:[['pessoas','Time'],['reunioes','Reuniões']]},
+ {id:'gestao',    rot:'Gestão',    abas:MODULOS.map(x=>[x.id, x.nome])},
+ {id:'matinal',   rot:'Matinal',   abas:[['matinal','Matinal']]},
+];
+const ABAS = GRUPOS.flatMap(g=>g.abas);
+const grupoDe = aba => GRUPOS.find(g=>g.abas.some(([id])=>id===aba)) || GRUPOS[0];
+let atual = 'agenda';
 const nav = document.getElementById('nav');
-ABAS.forEach(([id,rot])=>{
+const subnav = document.getElementById('subnav');
+GRUPOS.forEach(g=>{
  const b = document.createElement('button');
- b.dataset.rot = rot;
- b.textContent = rot;
- b.dataset.id = id;
- b.onclick = () => { atual = id; render(); window.scrollTo({top:0}); };
+ b.dataset.rot = g.rot; b.textContent = g.rot; b.dataset.g = g.id;
+ b.onclick = () => { atual = g.abas[0][0]; render(); window.scrollTo({top:0}); };
  nav.append(b);
 });
 
 function render(){
+ const g = grupoDe(atual);
+ const venc = pendencias().filter(x=>x.quando && x.quando <= HOJE).length;
+ const CONT = {hoje: venc + nCriticos(), comercial: V.temperaturas.quente,
+   gestao: MODULOS.reduce((a,mo)=>a+regs(mo.id).filter(r=>atrasado(mo,r)).length,0)};
  [...nav.children].forEach(b => {
-  b.classList.toggle('on', b.dataset.id===atual);
-  const venc = () => pendencias().filter(x=>x.quando && x.quando <= HOJE).length;
-  const bdg = b.dataset.id==='alertas' ? nCriticos()
-            : b.dataset.id==='quentes' ? V.temperaturas.quente
-            : b.dataset.id==='agenda' ? (venc()||null) : null;
-  b.innerHTML = b.dataset.rot + (bdg!==null ? '<span class="bdg">'+bdg+'</span>' : '');
+  b.classList.toggle('on', b.dataset.g===g.id);
+  const n = CONT[b.dataset.g];
+  b.innerHTML = b.dataset.rot + (n ? '<span class="bdg">'+n+'</span>' : '');
+ });
+ subnav.innerHTML = '';
+ subnav.style.display = g.abas.length>1 ? '' : 'none';
+ if(g.abas.length>1) g.abas.forEach(([id,rot])=>{
+  const b = document.createElement('button');
+  b.textContent = rot;
+  const n = id==='alertas' ? nCriticos() : id==='quentes' ? V.temperaturas.quente
+    : MODULOS.some(x=>x.id===id) ? regs(id).filter(r=>atrasado(modPor(id),r)).length : 0;
+  if(n) b.innerHTML = rot + '<span class="bdg">'+n+'</span>';
+  b.classList.toggle('on', id===atual);
+  b.onclick = () => { atual = id; render(); window.scrollTo({top:0}); };
+  subnav.append(b);
  });
  const m = document.getElementById('main');
  m.innerHTML = '';
