@@ -237,6 +237,12 @@ button.lnk:active{color:var(--teal)}
 .cl.mais::before{content:"+";position:absolute;margin-left:-14px;color:var(--faint)}
 .cl.tot{border-bottom:0;background:#FAFBF9;font-weight:500;color:var(--ink);border-top:1px solid var(--rule2)}
 .cl.tot span{color:var(--teal)}
+.okr{padding:12px 0;border-bottom:1px solid var(--rule)}
+.okr.feito{opacity:.55}
+.okr .search{width:100%;margin-bottom:6px}
+.okr .okb{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.okr input[type=range]{flex:1;min-width:120px;accent-color:var(--teal)}
+.okr .okv{min-width:44px;text-align:right;font-size:14px}
 .comp{display:flex;gap:10px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--rule)}
 .comp.feito{opacity:.5}
 .comp.feito .cpo{text-decoration:line-through}
@@ -691,6 +697,12 @@ const PDI = [
  ['gap','O que precisa melhorar'],
  ['acao','Ação combinada até a próxima revisão'],
 ];
+/* Objetivo com resultado medível e prazo, no formato que o BJ7 Adm já usa:
+   objetivo, resultado-chave, progresso, status. */
+const objetivosDe = n => (dados.okrs||[]).filter(o=>o.quem===n)
+  .sort((a,b)=> (a.prazo||'9999') < (b.prazo||'9999') ? -1 : 1);
+const objetivosAbertos = () => (dados.okrs||[])
+  .filter(o=>o.status!=='concluido' && NOMES.includes(o.quem));
 
 function diagnostico(n){
  const p = V.pessoas[n], r = realDe(p);
@@ -744,6 +756,43 @@ function viewPessoas(m){
      ta.oninput = () => { dados.pdi[n][k] = ta.value; salvar(); };
      host.append(ta);
     });
+
+    host.append(el('<h4 class="sec">Objetivos</h4>'));
+    host.append(el('<p class="mini">Objetivo com resultado medível e prazo. O progresso é você quem move.</p>'));
+    const okx = el('<div></div>'); host.append(okx);
+    const pintaOkr = () => {
+     okx.innerHTML='';
+     objetivosDe(n).forEach((o,i)=>{
+      const atras = o.prazo && o.prazo < HOJE && o.status!=='concluido';
+      const l = el('<div class="okr'+(o.status==='concluido'?' feito':'')+'">'
+       +'<input class="search oko" placeholder="Objetivo">'
+       +'<input class="search okk" placeholder="Como saber que foi atingido">'
+       +'<div class="okb"><input type="date" class="search okp" style="max-width:150px">'
+       +'<input type="range" min="0" max="100" step="10" class="okr-r">'
+       +'<span class="okv num"></span>'
+       +'<button class="btn ghost sm" data-del>Remover</button></div></div>');
+      const ob=l.querySelector('.oko'), kk=l.querySelector('.okk'), pz=l.querySelector('.okp'),
+            rg=l.querySelector('.okr-r'), vv=l.querySelector('.okv');
+      ob.value=o.objetivo||''; kk.value=o.kr||''; pz.value=o.prazo||''; rg.value=o.progresso||0;
+      const mostra = () => { vv.textContent = (o.progresso||0)+'%';
+        vv.className = 'okv num'+(atras?' warn':''); };
+      ob.oninput=()=>{o.objetivo=ob.value; salvar();};
+      kk.oninput=()=>{o.kr=kk.value; salvar();};
+      pz.onchange=()=>{o.prazo=pz.value; salvar(); pintaOkr();};
+      rg.oninput=()=>{o.progresso=+rg.value; o.status = +rg.value>=100?'concluido':'em_andamento';
+        mostra(); salvar();};
+      l.querySelector('[data-del]').onclick=()=>{
+        dados.okrs = (dados.okrs||[]).filter(z=>z!==o); salvar(); pintaOkr();};
+      mostra(); okx.append(l);
+     });
+     const add = el('<button class="btn ghost sm" style="margin-top:8px">Adicionar objetivo</button>');
+     add.onclick = () => { dados.okrs = dados.okrs||[];
+       dados.okrs.push({id:'o'+Date.now(), quem:n, objetivo:'', kr:'', prazo:'',
+         progresso:0, status:'em_andamento'});
+       salvar(); pintaOkr(); };
+     okx.append(add);
+    };
+    pintaOkr();
 
     const meus = (dados.reunioes||[]).filter(r=>(r.pessoas||[]).includes(n))
       .sort((a,b)=> a.data < b.data ? 1 : -1);
@@ -1764,25 +1813,39 @@ function viewAtividades(m){
 }
 
 /* ---------------- reuniões e 1:1 ---------------- */
+/* Duas famílias, porque as perguntas são diferentes.
+   COM O TIME: 1:1 e operacional — o assunto é a pessoa e o trabalho dela.
+   COM O MUNDO: sócio, cliente, fornecedor, parceiro, órgão público — o assunto é
+   uma negociação ou uma decisão, e o participante não está na folha. */
 const TIPOS_PADRAO = [
- {id:'1a1', nome:'1:1', desc:'Conversa individual de desenvolvimento. Quem fala mais é o colaborador.',
+ {id:'1a1', fam:'time', nome:'1:1',
+  desc:'Conversa individual de desenvolvimento. Quem fala mais é o colaborador.',
   pontos:['Como você está','O que te travou desde a última vez','O que você quer desenvolver',
           'Feedback que eu tenho para você','O que combinamos até a próxima']},
- {id:'estrategia', nome:'Estratégia',
-  desc:'Decisão que muda rumo. O valor está em registrar o porquê, não só o quê.',
-  pontos:['Contexto e o que motivou','Opções que avaliamos','Decisão','Por que essa e não a outra',
-          'Riscos que aceitamos']},
- {id:'operacional', nome:'Operacional',
-  desc:'Alinhamento de rotina, processo ou problema pontual.',
+ {id:'operacional', fam:'time', nome:'Operacional',
+  desc:'Alinhamento de rotina, processo ou problema pontual com o time.',
   pontos:['Pauta','O que ficou decidido']},
+ {id:'socios', fam:'externa', nome:'Sócios',
+  desc:'Decisão que muda rumo. O valor está em registrar o porquê, não só o quê.',
+  pontos:['Contexto e o que motivou','Opções que avaliamos','Decisão',
+          'Por que essa e não a outra','Riscos que aceitamos','Quando revisamos essa decisão']},
+ {id:'externa', fam:'externa', nome:'Cliente ou parceiro',
+  desc:'Reunião com quem está fora da empresa: cliente, fornecedor, construtora, órgão público.',
+  pontos:['Quem estava e de onde','O que eles querem','O que nós queremos',
+          'Onde ficou','Próximo passo e de quem é']},
 ];
 const tiposReuniao = () => (dados.tipos && dados.tipos.length) ? dados.tipos : TIPOS_PADRAO;
 const tipoPor = id => tiposReuniao().find(t=>t.id===id) || tiposReuniao()[0];
+const ehTime = r => (tipoPor(r.tipo).fam || 'time') === 'time';
+/* participantes externos ficam no próprio registro: não existem no Pipedrive */
+const externosConhecidos = () => [...new Set((dados.reunioes||[])
+  .flatMap(r => r.externos || []).filter(Boolean))].sort();
 const reunioes = () => (dados.reunioes||[]).filter(r => EMP.id==='grupo' || r.emp===EMP.id)
   .sort((a,b)=> a.data < b.data ? 1 : -1);
 const compromissosAbertos = () => reunioes().flatMap(r =>
   (r.comp||[]).map((c,i)=>({...r_ref(r), c, i, r})).filter(x=>!x.c.feito));
-const r_ref = r => ({data:r.data, tipo:r.tipo, com:(r.pessoas||[]).join(', ')});
+const participantes = r => [...(r.pessoas||[]), ...(r.externos||[])].join(', ');
+const r_ref = r => ({data:r.data, tipo:r.tipo, com:participantes(r)});
 
 function novaReuniao(tipoId, prefPessoa){
  const t = tipoPor(tipoId);
@@ -1797,7 +1860,7 @@ function editorReuniao(host, r, aoSalvar){
  dt.onchange = () => { r.data = dt.value; aoSalvar(); };
  host.append(dt);
 
- host.append(el('<label>Com quem</label>'));
+ host.append(el('<label>Do time</label>'));
  const seg = el('<div class="seg" style="flex-wrap:wrap">'
   + NOMES.map(n=>'<button data-n="'+esc(n)+'">'+esc(n)+'</button>').join('') + '</div>');
  const marca = () => seg.querySelectorAll('button').forEach(b=>
@@ -1810,6 +1873,24 @@ function editorReuniao(host, r, aoSalvar){
  });
  marca(); host.append(seg);
 
+ if(!ehTime(r)){
+  host.append(el('<label for="'+r.id+'-ex">De fora<i>Nome e de onde é, separados por vírgula. '
+   +'Sócio, cliente, construtora, cartório, prefeitura.</i></label>'));
+  const ex = el('<input class="search" id="'+r.id+'-ex" list="ext-'+r.id+'" '
+    +'placeholder="Bruno Prendin, Construtora X">');
+  const dl = el('<datalist id="ext-'+r.id+'">'
+    + externosConhecidos().map(n=>'<option value="'+esc(n)+'"></option>').join('') + '</datalist>');
+  ex.value = (r.externos||[]).join(', ');
+  ex.oninput = () => { r.externos = ex.value.split(',').map(x=>x.trim()).filter(Boolean); aoSalvar(); };
+  host.append(ex, dl);
+ }
+
+ host.append(el('<label for="'+r.id+'-as">Assunto<i>Uma linha para achar depois.</i></label>'));
+ const asu = el('<input class="search" id="'+r.id+'-as" placeholder="Ex: permuta da Quadra 82">');
+ asu.value = r.assunto || '';
+ asu.oninput = () => { r.assunto = asu.value; aoSalvar(); };
+ host.append(asu);
+
  t.pontos.forEach((ponto,i)=>{
   host.append(el('<label for="'+r.id+'-p'+i+'">'+esc(ponto)+'</label>'));
   const ta = el('<textarea id="'+r.id+'-p'+i+'" rows="3"></textarea>');
@@ -1820,21 +1901,24 @@ function editorReuniao(host, r, aoSalvar){
 
  host.append(el('<h4 class="sec" style="margin-top:20px">Combinados</h4>'));
  host.append(el('<p class="mini">O que ficou combinado, com dono e prazo. Fica aberto até alguém marcar.</p>'));
- const cx = el('<div></div>'); host.append(cx);
+ const cx = el('<div></div>');
+ host.append(el('<datalist id="quem-'+r.id+'">'
+  + [...NOMES, ...(r.externos||[]), ...externosConhecidos()].filter((v,i,a)=>a.indexOf(v)===i)
+    .map(n=>'<option value="'+esc(n)+'"></option>').join('') + '</datalist>'));
+ host.append(cx);
  const pintaComp = () => {
   cx.innerHTML='';
   (r.comp||[]).forEach((c,i)=>{
    const linha_ = el('<div class="comp'+(c.feito?' feito':'')+'">'
     +'<button class="chk" aria-label="Marcar como feito">'+(c.feito?'✓':'')+'</button>'
     +'<div class="cp"><input class="search cpo" placeholder="O que ficou combinado">'
-    +'<div class="cpb"><select class="selmes cpq"><option value="">Quem…</option>'
-    + NOMES.map(n=>'<option value="'+esc(n)+'">'+esc(n)+'</option>').join('')
-    +'</select><input type="date" class="search cpd" style="max-width:160px"></div></div>'
+    +'<div class="cpb"><input class="search cpq" list="quem-'+r.id+'" placeholder="Quem…" '
+    +'style="max-width:180px"><input type="date" class="search cpd" style="max-width:160px"></div></div>'
     +'<button class="btn ghost sm" data-del aria-label="Remover">Remover</button></div>');
    const o=linha_.querySelector('.cpo'), q=linha_.querySelector('.cpq'), dd=linha_.querySelector('.cpd');
    o.value=c.oque||''; q.value=c.quem||''; dd.value=c.quando||'';
    o.oninput=()=>{c.oque=o.value; aoSalvar();};
-   q.onchange=()=>{c.quem=q.value; aoSalvar();};
+   q.oninput=()=>{c.quem=q.value; aoSalvar();};
    dd.onchange=()=>{c.quando=dd.value; aoSalvar();};
    linha_.querySelector('.chk').onclick=()=>{ c.feito=!c.feito; aoSalvar(); pintaComp(); };
    linha_.querySelector('[data-del]').onclick=()=>{ r.comp.splice(i,1); aoSalvar(); pintaComp(); };
@@ -1859,10 +1943,15 @@ function viewReunioes(m){
   +'Os pontos de cada tipo de reunião são configuráveis no fim da página.</p>'));
 
  m.append(cartoes([
-  {b:lista.length, s:'reuniões registradas'},
-  {b:lista.filter(r=>r.tipo==='1a1').length, s:'1:1 com o time'},
+  {b:lista.filter(ehTime).length, s:'reuniões com o time'},
+  {b:lista.filter(r=>!ehTime(r)).length, s:'reuniões com sócios, clientes e parceiros'},
   {b:abertos.length, s:'combinados em aberto'},
   {b:atrasados.length, s:'combinados fora do prazo'}]));
+
+ const semUm = NOMES.filter(n=>!(dados.reunioes||[]).some(r=>r.tipo==='1a1'
+   && (r.pessoas||[]).includes(n)));
+ if(semUm.length) m.append(el('<p class="lede" style="margin-top:14px"><b>Sem nenhum 1:1 registrado:</b> '
+   + semUm.map(esc).join(', ') + '. Um por mês com cada um já muda a conversa.</p>'));
 
  if(abertos.length){
   m.append(el('<h2>Combinados em aberto</h2>'));
@@ -1882,6 +1971,8 @@ function viewReunioes(m){
  }
 
  m.append(el('<h2>Registrar reunião</h2>'));
+ m.append(el('<p class="lede">Com o time o assunto é a pessoa e o trabalho dela. Com sócios, clientes e '
+  +'parceiros o assunto é uma negociação — aí o participante não está na folha e você digita o nome.</p>'));
  const nova = el('<div class="seg" style="flex-wrap:wrap;margin-bottom:6px">'
   + tiposReuniao().map(t=>'<button data-t="'+t.id+'">'+esc(t.nome)+'</button>').join('') + '</div>');
  m.append(nova);
@@ -1891,19 +1982,34 @@ function viewReunioes(m){
  });
 
  m.append(el('<h2>Histórico</h2>'));
+ let fFam = '';
+ const segF = el('<div class="seg" style="margin-bottom:8px">'
+  +'<button class="on" data-f="">Todas</button><button data-f="time">Com o time</button>'
+  +'<button data-f="externa">Sócios, clientes e parceiros</button></div>');
+ const busca = el('<input class="search" type="search" placeholder="Buscar por assunto ou pessoa…" '
+  +'style="margin:0 0 10px" aria-label="Buscar reunião">');
+ m.append(segF, busca);
  if(!lista.length){
   m.append(el('<div class="empty">Nenhuma reunião registrada ainda. Escolha um tipo acima para começar.</div>'));
  }
  const hx = el('<div></div>'); m.append(hx);
- lista.forEach(r=>{
+ const pintaHist = () => {
+  hx.innerHTML='';
+  const termo = busca.value.toLowerCase();
+  segF.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.f===fFam));
+  lista.filter(r => (!fFam || (tipoPor(r.tipo).fam||'time')===fFam)
+   && (!termo || ((r.assunto||'')+' '+participantes(r)+' '+tipoPor(r.tipo).nome
+        +' '+Object.values(r.pontos||{}).join(' ')).toLowerCase().includes(termo)))
+  .forEach(r=>{
   const t = tipoPor(r.tipo);
   const preenchidos = Object.values(r.pontos||{}).filter(v=>(v||'').trim()).length;
   const abertosR = (r.comp||[]).filter(c=>!c.feito).length;
   linha(hx,
-   '<div class="hd"><span class="nm">'+esc(t.nome)
-    +((r.pessoas||[]).length? ' — '+esc(r.pessoas.join(', ')) : '')+'</span>'
+   '<div class="hd"><span class="nm">'+esc(r.assunto || t.nome)
+    +(participantes(r)? ' — '+esc(participantes(r)) : '')+'</span>'
     +'<span class="stat num">'+dbr(r.data)+'</span></div>'
-    +'<div class="sub">'+preenchidos+' de '+t.pontos.length+' pontos escritos'
+    +'<div class="sub"><span class="tag '+(ehTime(r)?'t-teal':'t-ochre')+'">'+esc(t.nome)+'</span> '
+    +preenchidos+' de '+t.pontos.length+' pontos escritos'
     +(abertosR? ' · '+abertosR+' combinado'+(abertosR>1?'s':'')+' em aberto' : '')+'</div>',
    host => {
     host.append(el('<p class="mini" style="margin-top:12px">'+esc(t.desc)+'</p>'));
@@ -1915,7 +2021,11 @@ function viewReunioes(m){
     };
     host.append(ac);
    });
- });
+  });
+ };
+ segF.querySelectorAll('button').forEach(b=>b.onclick=()=>{ fFam=b.dataset.f; pintaHist(); });
+ busca.oninput = pintaHist;
+ pintaHist();
 
  /* --- tipos configuráveis --- */
  m.append(el('<h2>Tipos de reunião</h2>'));
@@ -2127,6 +2237,14 @@ function corpoApresentacao(){
    h += '<p><b>'+n+'</b><br>' + PDI.filter(([k])=>(pdi[n][k]||'').trim())
      .map(([k,rot])=>'<span class="mini">'+rot+':</span> '+esc(pdi[n][k])).join('<br>') + '</p>';
   });
+ }
+ const ok = objetivosAbertos().filter(o=>(o.objetivo||'').trim());
+ if(ok.length){
+  h += '<h2>Objetivos em aberto</h2><table><thead><tr><th>Quem</th><th>Objetivo</th>'
+   +'<th>Como saber</th><th class="r">Progresso</th><th>Prazo</th></tr></thead><tbody>'
+   + ok.map(o=>'<tr><td>'+esc(o.quem)+'</td><td>'+esc(o.objetivo)+'</td><td>'+esc(o.kr||'—')
+     +'</td><td class="r">'+(o.progresso||0)+'%</td><td>'+(o.prazo? dbr(o.prazo):'—')+'</td></tr>').join('')
+   + '</tbody></table>';
  }
  const ab = compromissosAbertos();
  if(ab.length){
