@@ -53,6 +53,12 @@ h1{font-size:19px;line-height:1.2;margin:0;letter-spacing:-.02em;font-weight:650
  scrollbar-width:none;-webkit-overflow-scrolling:touch}
 .periodo::-webkit-scrollbar,nav::-webkit-scrollbar{display:none}
 .periodo{padding:0 0 10px}
+.empresa-nav{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 0 10px}
+.empresa-nav button{min-height:48px;border:1px solid var(--rule2);border-radius:8px;background:var(--card);
+ color:var(--soft);font:inherit;font-size:14px;font-weight:600;cursor:pointer;padding:7px 12px;text-align:left}
+.empresa-nav button span{display:block;font-size:11.5px;font-weight:400;margin-top:2px;color:var(--faint)}
+.empresa-nav button.on{border-color:var(--teal);background:var(--teal-bg);color:var(--teal)}
+.empresa-nav button.on span{color:var(--teal)}
 .seg{display:inline-flex;border:1px solid var(--rule2);border-radius:6px;overflow:hidden;
  background:var(--card);flex:none}
 .seg button{background:none;border:0;padding:0 14px;height:36px;font-size:13.5px;
@@ -315,12 +321,13 @@ textarea{width:100%;font:inherit;font-size:16px;padding:11px 12px;border:1px sol
 
 <div class="top"><div class="top-in">
  <div class="brand">
-  <div><h1>Central Comercial</h1><p>Grupo BJ7 — Izi Imóveis e BJ7 Painéis</p></div>
+  <div><h1 id="brandTitle">Central Comercial</h1><p id="brandSub">Gestão separada por empresa</p></div>
   <div class="fresh">
    <span class="pill" id="pill"><span class="dot" id="dot"></span><span id="pilltxt"></span></span>
    <button class="btn ghost sm" id="btnAtualizar">Atualizar</button>
   </div>
  </div>
+ <div class="empresa-nav" id="empresaNav" aria-label="Escolher empresa"></div>
  <div class="periodo" id="periodo"></div>
  <nav id="nav"></nav>
 </div></div>
@@ -330,11 +337,12 @@ textarea{width:100%;font:inherit;font-size:16px;padding:11px 12px;border:1px sol
 </div>
 
 <script>
-const D = __DADOS__;
+const BASE = __DADOS__;
+let D = BASE;
 const REAL = ['Ligação','Visita','Reunião','WhatsApp'];
-const MORTAS = D.mortas;
-const HOJE = D.hoje;
-const COB = D.cobertura;
+const MORTAS = BASE.mortas;
+const HOJE = BASE.hoje;
+const COB = BASE.cobertura;
 /* A janela em que existe registro de atividade. Fora dela, qualquer número de
    esforço é ausência de dado, não ausência de trabalho. */
 const cobreAtiv = () => PER.ini >= COB.ativDe;
@@ -427,14 +435,34 @@ function calcular(){
    já entra normalizado e não volta a aparecer na tela. */
 const APELIDO = {Jonathas:'Keth'};
 const quem = n => APELIDO[n] || n;
+const EMPRESAS = {
+ izi: {
+  rot:'Izi Imóveis', curto:'IZI', subtitulo:'Clientes, imóveis, áreas e conversão',
+  funis:['Vendas','SDR','Angariação'],
+  abas:[['resumo','Resumo'],['quentes','Clientes quentes'],['leitura','Conversas'],
+   ['resultado','Resultados'],['atividades','Atividades'],['pessoas','Equipe'],
+   ['operacao','Imóveis e áreas'],['alertas','Alertas'],['matinal','Reunião']]
+ },
+ paineis: {
+  rot:'BJ7 Painéis', curto:'Painéis', subtitulo:'Anunciantes, oportunidades e operação comercial',
+  funis:['Painéis'],
+  abas:[['resumo','Resumo'],['quentes','Oportunidades quentes'],['leitura','Conversas'],
+   ['resultado','Resultados'],['atividades','Atividades'],['pessoas','Equipe'],
+   ['operacao','Comercial e ocupação'],['alertas','Alertas'],['matinal','Reunião']]
+ }
+};
+let empresaAtual = 'izi';
+let FUNIS = [...EMPRESAS.izi.funis];
 let NOMES = [];
 /* Se alguém não teve atividade no período, ainda assim precisa aparecer com zero —
    senão some do painel e o zero, que é a informação, desaparece junto. */
-const EQUIPE = [...new Set([...D.ativ.map(x=>x.a), ...D.negocios.map(x=>x.d)])]
-  .filter(n=>n && n!=='—');
-const FRENTE = {Nicolas:'Izi — mercado e captação', Keth:'Izi — clientes e conversão',
- Gabriel:'BJ7 Painéis', Rafael:'saiu em março de 2026'};
-const frenteDe = n => FRENTE[n] || 'sem frente definida';
+let EQUIPE = [];
+const FRENTES = {
+ izi:{Nicolas:'mercado, captação e construtoras', Keth:'clientes e conversão',
+  Rafael:'saiu em março de 2026'},
+ paineis:{Gabriel:'comercial e operação de mídia'}
+};
+const frenteDe = n => (FRENTES[empresaAtual]||{})[n] || 'sem frente definida nesta empresa';
 const QUENTES = ['Qualificado','Mídia Kit','Visita','Proposta'];
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -513,31 +541,31 @@ const el = h => { const t=document.createElement('template'); t.innerHTML=h.trim
 
 /* ---------------- alertas ---------------- */
 const ALERTAS = [
- {id:'a1', n:'critico', t:'Nenhum negócio de Painéis tem valor',
+ {id:'a1', empresa:'paineis', n:'critico', t:'Nenhum negócio de Painéis tem valor',
   c:'Os 444 negócios do funil BJ7 Painéis estão com R$ 0. A meta de 90 mil por mês não é acompanhável pelo CRM enquanto isso durar.',
   a:'Tornar o campo valor obrigatório e recadastrar primeiro as etapas Proposta, Visita e Mídia Kit — são 15 negócios.',
   lista:'paineis'},
- {id:'a2', n:'critico', t:'As nove etapas de Painéis valem 100% de probabilidade',
+ {id:'a2', empresa:'paineis', n:'critico', t:'As nove etapas de Painéis valem 100% de probabilidade',
   c:'De Lead até Sem interesse, todas foram configuradas com 100%. Qualquer previsão ponderada desse funil é ficção.',
   a:'Redefinir: Lead 10, Em contato 20, Qualificado 40, Mídia Kit 55, Visita 70, Proposta 85, Nutrição 0, Sem interesse 0.'},
- {id:'a3', n:'alto', t:'92 negócios descartados continuam abertos',
+ {id:'a3', empresa:'paineis', n:'alto', t:'92 negócios descartados continuam abertos',
   c:'Estão na etapa Sem interesse, mas ninguém marcou como perdido. Seguem somando no funil para sempre.',
   a:'Marcar os 92 como perdidos com motivo. É a faxina mais rápida disponível.',
   lista:'semInteresse'},
- {id:'a4', n:'alto', t:'Nicolas está trabalhando no funil errado',
+ {id:'a4', empresa:'izi', n:'alto', t:'Nicolas está trabalhando no funil errado',
   c:'Ele responde por captação de áreas, mas Angariação tem 16 negócios enquanto o SDR tem 866. O resultado dele não aparece onde deveria.',
   a:'Decidir qual funil é o dele e migrar a carteira antes de definir qualquer meta.'},
- {id:'a5', n:'alto', t:'173 negócios de Painéis parados há mais de 30 dias',
+ {id:'a5', empresa:'paineis', n:'alto', t:'173 negócios de Painéis parados há mais de 30 dias',
   c:'39% do funil do Gabriel não recebe movimento há mais de um mês.',
   a:'Regra fixa: 30 dias sem atividade, o negócio volta para Nutrição ou vira perdido.',
   lista:'parados'},
- {id:'a6', n:'medio', t:'Keth ainda opera com o login do dono',
+ {id:'a6', empresa:'izi', n:'medio', t:'Keth ainda opera com o login do dono',
   c:'Sem usuário próprio não há trilha de auditoria, e ela enxerga a base inteira do grupo. As 3 atividades dela no mês não estão ligadas a negócio nenhum.',
   a:'Criar usuário com permissão de comercial e ligar as atividades dela aos negócios.'},
 ];
 const TAG = {critico:['t-clay','Crítico'], alto:['t-ochre','Alto'], medio:['t-gray','Médio']};
 const oculto = a => !!(dados.ocultos||{})[a.id];
-const visiveis = () => ALERTAS.filter(a=>!oculto(a));
+const visiveis = () => ALERTAS.filter(a=>a.empresa===empresaAtual && !oculto(a));
 const nCriticos = () => visiveis().filter(a=>a.n!=='medio').length;
 
 /* ---------------- tabelas ---------------- */
@@ -758,7 +786,6 @@ const ORDEM_ETAPA = {'Lead':1,'Lead novo':1,'Em contato':2,'Realizando contato':
  'Mídia Kit':5,'Análise Documentação':5,'Apresentando oportunidades':5,'Visita':6,'Portfólio':6,
  'Proposta':7,'Fechamento':8,'Fechado':9,'Nutrição':10,'Longo prazo':10,'Longo Prazo':10,
  'Sem interesse':11,'Arquivado':11,'Não respondeu - IA':11,'Sem número':11};
-const FUNIS = ['Vendas','SDR','Painéis','Angariação'];
 const noPeriodo  = x => x.q  >= PER.ini && x.q  <= PER.fim;   /* fechado no período */
 const criadoNoPer = x => x.cr >= PER.ini && x.cr <= PER.fim;   /* aberto no período */
 
@@ -987,7 +1014,7 @@ function tabelaUnidade(host, itens){
 }
 
 function viewAlertas(m){
- const vis = visiveis(), esc_ = ALERTAS.filter(oculto);
+ const vis = visiveis(), esc_ = ALERTAS.filter(a=>a.empresa===empresaAtual && oculto(a));
  m.append(el('<p class="lede">Clique para ver o que significa, a ação recomendada e a lista dos negócios '
   +'afetados. Se um alerta não se aplica ao seu caso, dá para ocultar — ele fica guardado no fim da página.</p>'));
  if(!vis.length) m.append(el('<div class="empty">Todos os alertas estão ocultos.</div>'));
@@ -1184,9 +1211,10 @@ function viewQuentes(m){
   kp.querySelectorAll('.kpib').forEach(c=>c.classList.toggle('on', c.dataset.t===fTemp));
   segD.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.d===fDono));
   const rows = V.negocios.filter(x => (!fTemp || x.temp===fTemp) && (!fDono || x.d===fDono));
-  const noGrupo = V.negocios.filter(x => !fTemp || x.temp===fTemp).length;
+  const naEmpresa = V.negocios.filter(x => !fTemp || x.temp===fTemp).length;
   titulo.innerHTML = '<b>'+nf(rows.length)+'</b> ' + NOME[fTemp]
-   + (fDono ? ' de ' + fDono + ', de ' + nf(noGrupo) + ' do grupo' : ' no grupo inteiro');
+   + (fDono ? ' de ' + fDono + ', de ' + nf(naEmpresa) + ' da '+EMPRESAS[empresaAtual].rot
+      : ' na '+EMPRESAS[empresaAtual].rot);
   alvo.innerHTML='';
   if(!rows.length){ alvo.append(el('<div class="empty">Nada nesta combinação.</div>')); return; }
   tabela(alvo, rows, [
@@ -1383,7 +1411,7 @@ function viewResultado(m){
 
  if(!A.g.length && !A.pc.length){
   m.append(el('<div class="empty" style="margin-top:14px">Nenhum negócio foi ganho ou perdido neste '
-   +'período. O grupo está há <b>'+semGanho+' dias</b> sem registrar um ganho — o último foi em '
+   +'período. A '+EMPRESAS[empresaAtual].rot+' está há <b>'+semGanho+' dias</b> sem registrar um ganho — o último foi em '
    +ultimo.slice(8,10)+'/'+ultimo.slice(5,7)+'/'+ultimo.slice(0,4)+'.</div>'));
  }
 
@@ -1689,7 +1717,8 @@ const CAMPOS = [
  ['travas','Travas que dependem de mim','Decisões que só você destrava.'],
  ['notas','Anotações livres',''],
 ];
-let dados = {};
+const estadoEmpresas = {izi:{}, paineis:{}};
+let dados = estadoEmpresas.izi;
 
 function fechamentoDia(dia){
  const A = D.ativ.filter(x=>x.q===dia);
@@ -1792,7 +1821,8 @@ function salvar(){
  clearTimeout(tmr);
  tmr = setTimeout(async () => {
   const s = document.getElementById('saved'); if(!s) return;
-  try { await window.storage.set('matinal:campos', JSON.stringify(dados)); s.textContent = 'Salvo'; }
+  estadoEmpresas[empresaAtual] = dados;
+  try { await window.storage.set('matinal:'+empresaAtual+':campos', JSON.stringify(dados)); s.textContent = 'Salvo'; }
   catch(e){ s.textContent = 'Não consegui salvar — copie o texto antes de fechar'; return; }
   setTimeout(()=>{ if(s) s.textContent=''; }, 2000);
  }, 600);
@@ -1800,7 +1830,8 @@ function salvar(){
 
 function corpoApresentacao(){
  const T = totais();
- let h = '<h2>Matinal — '+PER.rot+'</h2>'
+ let h = '<h2>'+EMPRESAS[empresaAtual].rot+' — reunião de gestão</h2>'
+  +'<p class="mini">Período: '+PER.rot+'.</p>'
   +'<p class="mini">Pipedrive, extraído em '+D.extracao+'. Recorte: '+PER.ini.slice(8,10)+'/'+PER.ini.slice(5,7)
   +' a '+PER.fim.slice(8,10)+'/'+PER.fim.slice(5,7)+'.</p>'
   +'<table><thead><tr><th>Pessoa</th><th class="r">Negócios trabalhados</th><th class="r">Contatos</th>'
@@ -1891,7 +1922,7 @@ function imprimir(){
 
  tela.querySelector('[data-pdf]').onclick = e => {
   const doc = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">'
-   +'<title>Matinal BJ7 — '+PER.rot+'</title><style>'
+   +'<title>'+EMPRESAS[empresaAtual].rot+' — '+PER.rot+'</title><style>'
    +'body{font:12pt/1.5 -apple-system,Helvetica,Arial,sans-serif;color:#171A1C;margin:26px;max-width:760px}'
    +'h2{font-size:13pt;margin:20px 0 6px;color:#0B5F52}table{width:100%;border-collapse:collapse;font-size:11pt}'
    +'th{text-align:left;font-size:10pt;color:#6A7278;border-bottom:1px solid #CFD2CD;padding:6px 8px}'
@@ -1978,19 +2009,54 @@ function linha(host, html, preencher){
  };
 }
 
-const ABAS = [['resumo','Resumo'],['quentes','Quentes'],['leitura','Leitura'],['resultado','Resultado'],['atividades','Atividades'],
-              ['pessoas','Pessoas'],['paineis','BJ7 Painéis'],['izi','Izi Imóveis'],
-              ['alertas','Alertas'],['matinal','Matinal']];
 let atual = 'resumo';
+const empresaNav = document.getElementById('empresaNav');
 const nav = document.getElementById('nav');
-ABAS.forEach(([id,rot])=>{
- const b = document.createElement('button');
- b.dataset.rot = rot;
- b.textContent = rot;
- b.dataset.id = id;
- b.onclick = () => { atual = id; render(); window.scrollTo({top:0}); };
- nav.append(b);
-});
+
+function aplicarEscopo(){
+ const cfg = EMPRESAS[empresaAtual];
+ const funis = new Set(cfg.funis);
+ FUNIS = [...cfg.funis];
+ D = {...BASE,
+  negocios:BASE.negocios.filter(x=>funis.has(x.f)),
+  resultado:BASE.resultado.filter(x=>funis.has(x.f)),
+  ativ:BASE.ativ.filter(x=>funis.has(x.f))};
+ EQUIPE = [...new Set([...D.ativ.map(x=>x.a), ...D.negocios.map(x=>x.d), ...D.resultado.map(x=>x.d)])]
+  .filter(n=>n && n!=='—');
+ dados = estadoEmpresas[empresaAtual] || {};
+ document.getElementById('brandTitle').textContent = cfg.rot;
+ document.getElementById('brandSub').textContent = cfg.subtitulo;
+ document.title = cfg.rot+' — Gestão BJ7';
+}
+
+function montarEmpresas(){
+ empresaNav.innerHTML='';
+ Object.entries(EMPRESAS).forEach(([id,cfg])=>{
+  const b = document.createElement('button');
+  b.dataset.id=id;
+  b.innerHTML=cfg.rot+'<span>'+cfg.subtitulo+'</span>';
+  b.onclick=()=>{
+   if(empresaAtual===id) return;
+   empresaAtual=id; atual='resumo'; PRESET=null;
+   aplicarEscopo(); calcular(); montarEmpresas(); montarAbas(); renderCobertura(); render();
+   window.scrollTo({top:0});
+  };
+  b.classList.toggle('on',id===empresaAtual);
+  empresaNav.append(b);
+ });
+}
+
+function montarAbas(){
+ nav.innerHTML='';
+ EMPRESAS[empresaAtual].abas.forEach(([id,rot])=>{
+  const b = document.createElement('button');
+  b.dataset.rot = rot;
+  b.textContent = rot;
+  b.dataset.id = id;
+  b.onclick = () => { atual = id; render(); window.scrollTo({top:0}); };
+  nav.append(b);
+ });
+}
 
 function render(){
  [...nav.children].forEach(b => {
@@ -2002,8 +2068,7 @@ function render(){
  const m = document.getElementById('main');
  m.innerHTML = '';
  ({resumo:viewResumo, quentes:viewQuentes, leitura:viewLeitura, resultado:viewResultado, atividades:viewAtividades,
-   pessoas:viewPessoas, paineis:m=>viewUnidade(m,'BJ7 Painéis',['Painéis']),
-   izi:m=>viewUnidade(m,'Izi Imóveis',['Vendas','SDR','Angariação']),
+   pessoas:viewPessoas, operacao:m=>viewUnidade(m,EMPRESAS[empresaAtual].rot,FUNIS),
    alertas:viewAlertas, matinal:viewMatinal})[atual](m);
 }
 
@@ -2014,26 +2079,34 @@ window.addEventListener('scroll', () => {
  ultY = y;
 }, {passive:true});
 
-D.ativ.forEach(x=> x.a = quem(x.a));
-D.negocios.forEach(x=> x.d = quem(x.d));
-D.resultado.forEach(x=> x.d = quem(x.d));
+const funilPorId = Object.fromEntries([...BASE.negocios,...BASE.resultado].map(x=>[String(x.id),x.f]));
+BASE.ativ.forEach(x=>{ x.a=quem(x.a); if(!x.f) x.f=funilPorId[String(x.i)]||''; });
+BASE.negocios.forEach(x=> x.d = quem(x.d));
+BASE.resultado.forEach(x=> x.d = quem(x.d));
 
-document.getElementById('cobertura').innerHTML =
-  '<b>O que este painel enxerga</b>'
- +'<div class="cl"><span>Negócios</span> criados de '+dbr(COB.negDe)+' a '+dbr(D.janela.fim)
- +' — 2.531 abertos e 92 fechados, com etapa, responsável, cliente e telefone</div>'
- +'<div class="cl"><span>Atividades</span> concluídas de '+dbr(COB.ativDe)+' a '+dbr(COB.ativAte)
- +' — '+nf(D.ativ.length)+' registros com canal, autor e o que foi escrito</div>'
- +'<div class="cl"><span>Fora disso</span> o Pipedrive não tem registro. Antes de '+dbr(COB.ativDe)
- +' nenhuma atividade foi lançada no sistema</div>'
- +(COB.orfas? '<div class="cl"><span>'+COB.orfas+' atividades</span> apontam para negócios que foram '
-  +'apagados do Pipedrive. Ficam na lista, sem ficha para abrir</div>' : '')
- +'<div class="cl"><span>Valores</span> em reais ficam fora de todo o painel: o campo valor do Pipedrive '
- +'está inconsistente e não é confiável</div>';
+function renderCobertura(){
+ const semEmpresa = BASE.ativ.filter(x=>!x.f).length;
+ document.getElementById('cobertura').innerHTML =
+   '<b>Dados exclusivos da '+EMPRESAS[empresaAtual].rot+'</b>'
+  +'<div class="cl"><span>Negócios</span> '+nf(D.negocios.length)+' abertos e '
+  +nf(D.resultado.length)+' fechados nos funis desta empresa</div>'
+  +'<div class="cl"><span>Atividades</span> '+nf(D.ativ.length)+' registros vinculados aos negócios desta empresa, '
+  +'de '+dbr(COB.ativDe)+' a '+dbr(COB.ativAte)+'</div>'
+  +'<div class="cl"><span>Separação</span> pessoas, resultados e indicadores são calculados somente com os '
+  +'funis '+FUNIS.join(', ')+'</div>'
+  +(semEmpresa?'<div class="cl"><span>Sem empresa</span> '+nf(semEmpresa)+' atividades sem negócio ou funil '
+    +'identificável ficam fora das duas empresas para não contaminar os números</div>':'')
+  +'<div class="cl"><span>Valores</span> em reais continuam fora do painel enquanto o campo valor do Pipedrive '
+  +'não for confiável</div>';
+}
 
 (async () => {
- try { const r = await window.storage.get('matinal:campos'); if(r) dados = JSON.parse(r.value); }
- catch(e) { dados = {}; }
+ for(const id of Object.keys(EMPRESAS)){
+  try { const r=await window.storage.get('matinal:'+id+':campos');
+        if(r) estadoEmpresas[id]=JSON.parse(r.value); }
+  catch(e){ estadoEmpresas[id]={}; }
+ }
+ aplicarEscopo(); montarEmpresas(); montarAbas(); renderCobertura();
  montarPeriodo();
 })();
 </script></body></html>
