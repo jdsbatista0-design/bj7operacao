@@ -4,6 +4,20 @@ Substitui o HTML estático. O Worker chama o Pipedrive no servidor, guarda o
 resultado no KV e serve a página já preenchida. A chave do Pipedrive fica como
 secret na Cloudflare e nunca chega ao navegador.
 
+## Arquitetura por empresa
+
+O painel tem dois ambientes independentes: **Izi Imóveis** e **BJ7 Painéis**.
+Cada ambiente possui seu próprio resumo, oportunidades quentes, conversas,
+resultados, atividades, equipe, operação, alertas e reunião de gestão.
+
+- Izi Imóveis usa apenas os funis `Vendas`, `SDR` e `Angariação`.
+- BJ7 Painéis usa apenas o funil `Painéis`.
+- A empresa de uma atividade é herdada do funil do negócio vinculado.
+- Atividades sem negócio ou sem funil identificável ficam fora das visões das
+  empresas para não misturar pessoas, atividades e indicadores.
+- Metas, anotações, alertas ocultos e planos de desenvolvimento são salvos
+  separadamente por empresa.
+
 ## Publicar (uma vez)
 
 Precisa de Node instalado. No terminal, dentro desta pasta:
