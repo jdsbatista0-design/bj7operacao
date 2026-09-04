@@ -49,16 +49,15 @@ h1{font-size:19px;line-height:1.2;margin:0;letter-spacing:-.02em;font-weight:650
 .dot.old{background:var(--ochre)}
 
 /* faixas roláveis */
+.empresas{display:flex;gap:8px;align-items:center;padding:0 0 10px;overflow-x:auto;
+ scrollbar-width:none}
+.empresas::-webkit-scrollbar{display:none}
+.empresas .seg button{height:38px;font-size:14px;font-weight:500;padding:0 16px}
+.empresas .seg button.on{background:var(--teal);color:#fff}
 .periodo,nav{display:flex;gap:6px;align-items:center;overflow-x:auto;
  scrollbar-width:none;-webkit-overflow-scrolling:touch}
 .periodo::-webkit-scrollbar,nav::-webkit-scrollbar{display:none}
 .periodo{padding:0 0 10px}
-.empresa-nav{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 0 10px}
-.empresa-nav button{min-height:48px;border:1px solid var(--rule2);border-radius:8px;background:var(--card);
- color:var(--soft);font:inherit;font-size:14px;font-weight:600;cursor:pointer;padding:7px 12px;text-align:left}
-.empresa-nav button span{display:block;font-size:11.5px;font-weight:400;margin-top:2px;color:var(--faint)}
-.empresa-nav button.on{border-color:var(--teal);background:var(--teal-bg);color:var(--teal)}
-.empresa-nav button.on span{color:var(--teal)}
 .seg{display:inline-flex;border:1px solid var(--rule2);border-radius:6px;overflow:hidden;
  background:var(--card);flex:none}
 .seg button{background:none;border:0;padding:0 14px;height:36px;font-size:13.5px;
@@ -238,6 +237,14 @@ button.lnk:active{color:var(--teal)}
 .cl.mais::before{content:"+";position:absolute;margin-left:-14px;color:var(--faint)}
 .cl.tot{border-bottom:0;background:#FAFBF9;font-weight:500;color:var(--ink);border-top:1px solid var(--rule2)}
 .cl.tot span{color:var(--teal)}
+.comp{display:flex;gap:10px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--rule)}
+.comp.feito{opacity:.5}
+.comp.feito .cpo{text-decoration:line-through}
+.comp .chk{width:26px;height:26px;flex:none;border:1.5px solid var(--rule2);background:var(--card);
+ border-radius:6px;cursor:pointer;font-size:14px;color:var(--teal);line-height:1;margin-top:5px}
+.comp.feito .chk{border-color:var(--teal);background:var(--teal-bg)}
+.comp .cp{flex:1;min-width:0}
+.comp .cpb{display:flex;gap:7px;margin-top:7px;flex-wrap:wrap}
 .diag{border:1px solid var(--rule);border-radius:8px;overflow:hidden;margin-bottom:4px}
 .di{padding:10px 12px;font-size:14px;border-bottom:1px solid #F0F1EE;
  display:flex;gap:9px;align-items:flex-start;line-height:1.4}
@@ -321,13 +328,13 @@ textarea{width:100%;font:inherit;font-size:16px;padding:11px 12px;border:1px sol
 
 <div class="top"><div class="top-in">
  <div class="brand">
-  <div><h1 id="brandTitle">Central Comercial</h1><p id="brandSub">Gestão separada por empresa</p></div>
+  <div><h1>Central Comercial</h1><p>Grupo BJ7 — Izi Imóveis e BJ7 Painéis</p></div>
   <div class="fresh">
    <span class="pill" id="pill"><span class="dot" id="dot"></span><span id="pilltxt"></span></span>
    <button class="btn ghost sm" id="btnAtualizar">Atualizar</button>
   </div>
  </div>
- <div class="empresa-nav" id="empresaNav" aria-label="Escolher empresa"></div>
+ <div class="empresas" id="empresas"></div>
  <div class="periodo" id="periodo"></div>
  <nav id="nav"></nav>
 </div></div>
@@ -337,12 +344,11 @@ textarea{width:100%;font:inherit;font-size:16px;padding:11px 12px;border:1px sol
 </div>
 
 <script>
-const BASE = __DADOS__;
-let D = BASE;
+const D = __DADOS__;
 const REAL = ['Ligação','Visita','Reunião','WhatsApp'];
-const MORTAS = BASE.mortas;
-const HOJE = BASE.hoje;
-const COB = BASE.cobertura;
+const MORTAS = D.mortas;
+const HOJE = D.hoje;
+const COB = D.cobertura;
 /* A janela em que existe registro de atividade. Fora dela, qualquer número de
    esforço é ausência de dado, não ausência de trabalho. */
 const cobreAtiv = () => PER.ini >= COB.ativDe;
@@ -356,12 +362,12 @@ let PER = {ini: D.janela.ini, fim: D.janela.fim, rot: 'agosto de 2026'};
 let V = null;                       /* visão calculada */
 
 function calcular(){
- const A = D.ativ.filter(x => x.q >= PER.ini && x.q <= PER.fim);
+ const A = D.ativ.filter(x => x.q >= PER.ini && x.q <= PER.fim && ativNoEscopo(x));
 
- NOMES = [...new Set([...EQUIPE,
+ NOMES = [...new Set([...EQUIPE(),
    ...A.map(x=>x.a),
-   ...D.negocios.filter(criadoNoPer).map(x=>x.d),
-   ...D.resultado.filter(x=>noPeriodo(x)||criadoNoPer(x)).map(x=>x.d)])]
+   ...D.negocios.filter(x=>noEscopo(x)&&criadoNoPer(x)).map(x=>x.d),
+   ...D.resultado.filter(x=>noEscopo(x)&&(noPeriodo(x)||criadoNoPer(x))).map(x=>x.d)])]
   .filter(Boolean).filter(n=>n!=='—');
  const pessoas = {};
  NOMES.forEach(n=>{
@@ -390,7 +396,7 @@ function calcular(){
   o.n++; if(REAL.includes(x.t)) o.r++;
   if(x.q > o.ult) o.ult = x.q;
  });
- const negocios = D.negocios.map(b=>{
+ const negocios = D.negocios.filter(noEscopo).map(b=>{
   const o = agg[b.id] || {n:0, r:0, ult:''};
   /* referência = último toque conhecido ATÉ o fim da janela.
      Nada depois de PER.fim entra, senão o passado parece recente. */
@@ -435,34 +441,15 @@ function calcular(){
    já entra normalizado e não volta a aparecer na tela. */
 const APELIDO = {Jonathas:'Keth'};
 const quem = n => APELIDO[n] || n;
-const EMPRESAS = {
- izi: {
-  rot:'Izi Imóveis', curto:'IZI', subtitulo:'Clientes, imóveis, áreas e conversão',
-  funis:['Vendas','SDR','Angariação'],
-  abas:[['resumo','Resumo'],['quentes','Clientes quentes'],['leitura','Conversas'],
-   ['resultado','Resultados'],['atividades','Atividades'],['pessoas','Equipe'],
-   ['operacao','Imóveis e áreas'],['alertas','Alertas'],['matinal','Reunião']]
- },
- paineis: {
-  rot:'BJ7 Painéis', curto:'Painéis', subtitulo:'Anunciantes, oportunidades e operação comercial',
-  funis:['Painéis'],
-  abas:[['resumo','Resumo'],['quentes','Oportunidades quentes'],['leitura','Conversas'],
-   ['resultado','Resultados'],['atividades','Atividades'],['pessoas','Equipe'],
-   ['operacao','Comercial e ocupação'],['alertas','Alertas'],['matinal','Reunião']]
- }
-};
-let empresaAtual = 'izi';
-let FUNIS = [...EMPRESAS.izi.funis];
 let NOMES = [];
 /* Se alguém não teve atividade no período, ainda assim precisa aparecer com zero —
    senão some do painel e o zero, que é a informação, desaparece junto. */
-let EQUIPE = [];
-const FRENTES = {
- izi:{Nicolas:'mercado, captação e construtoras', Keth:'clientes e conversão',
-  Rafael:'saiu em março de 2026'},
- paineis:{Gabriel:'comercial e operação de mídia'}
-};
-const frenteDe = n => (FRENTES[empresaAtual]||{})[n] || 'sem frente definida nesta empresa';
+const EQUIPE = () => [...new Set([
+  ...D.ativ.filter(ativNoEscopo).map(x=>x.a),
+  ...D.negocios.filter(noEscopo).map(x=>x.d)])].filter(n=>n && n!=='—');
+const FRENTE = {Nicolas:'Izi — mercado e captação', Keth:'Izi — clientes e conversão',
+ Gabriel:'BJ7 Painéis', Rafael:'saiu em março de 2026'};
+const frenteDe = n => FRENTE[n] || 'sem frente definida';
 const QUENTES = ['Qualificado','Mídia Kit','Visita','Proposta'];
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -541,31 +528,31 @@ const el = h => { const t=document.createElement('template'); t.innerHTML=h.trim
 
 /* ---------------- alertas ---------------- */
 const ALERTAS = [
- {id:'a1', empresa:'paineis', n:'critico', t:'Nenhum negócio de Painéis tem valor',
+ {id:'a1', emp:'paineis', n:'critico', t:'Nenhum negócio de Painéis tem valor',
   c:'Os 444 negócios do funil BJ7 Painéis estão com R$ 0. A meta de 90 mil por mês não é acompanhável pelo CRM enquanto isso durar.',
   a:'Tornar o campo valor obrigatório e recadastrar primeiro as etapas Proposta, Visita e Mídia Kit — são 15 negócios.',
   lista:'paineis'},
- {id:'a2', empresa:'paineis', n:'critico', t:'As nove etapas de Painéis valem 100% de probabilidade',
+ {id:'a2', emp:'paineis', n:'critico', t:'As nove etapas de Painéis valem 100% de probabilidade',
   c:'De Lead até Sem interesse, todas foram configuradas com 100%. Qualquer previsão ponderada desse funil é ficção.',
   a:'Redefinir: Lead 10, Em contato 20, Qualificado 40, Mídia Kit 55, Visita 70, Proposta 85, Nutrição 0, Sem interesse 0.'},
- {id:'a3', empresa:'paineis', n:'alto', t:'92 negócios descartados continuam abertos',
+ {id:'a3', emp:'paineis', n:'alto', t:'92 negócios descartados continuam abertos',
   c:'Estão na etapa Sem interesse, mas ninguém marcou como perdido. Seguem somando no funil para sempre.',
   a:'Marcar os 92 como perdidos com motivo. É a faxina mais rápida disponível.',
   lista:'semInteresse'},
- {id:'a4', empresa:'izi', n:'alto', t:'Nicolas está trabalhando no funil errado',
+ {id:'a4', emp:'izi', n:'alto', t:'Nicolas está trabalhando no funil errado',
   c:'Ele responde por captação de áreas, mas Angariação tem 16 negócios enquanto o SDR tem 866. O resultado dele não aparece onde deveria.',
   a:'Decidir qual funil é o dele e migrar a carteira antes de definir qualquer meta.'},
- {id:'a5', empresa:'paineis', n:'alto', t:'173 negócios de Painéis parados há mais de 30 dias',
+ {id:'a5', emp:'paineis', n:'alto', t:'173 negócios de Painéis parados há mais de 30 dias',
   c:'39% do funil do Gabriel não recebe movimento há mais de um mês.',
   a:'Regra fixa: 30 dias sem atividade, o negócio volta para Nutrição ou vira perdido.',
   lista:'parados'},
- {id:'a6', empresa:'izi', n:'medio', t:'Keth ainda opera com o login do dono',
+ {id:'a6', emp:'izi', n:'medio', t:'Keth ainda opera com o login do dono',
   c:'Sem usuário próprio não há trilha de auditoria, e ela enxerga a base inteira do grupo. As 3 atividades dela no mês não estão ligadas a negócio nenhum.',
   a:'Criar usuário com permissão de comercial e ligar as atividades dela aos negócios.'},
 ];
 const TAG = {critico:['t-clay','Crítico'], alto:['t-ochre','Alto'], medio:['t-gray','Médio']};
 const oculto = a => !!(dados.ocultos||{})[a.id];
-const visiveis = () => ALERTAS.filter(a=>a.empresa===empresaAtual && !oculto(a));
+const visiveis = () => ALERTAS.filter(a=>!oculto(a) && (EMP.id==='grupo' || a.emp===EMP.id));
 const nCriticos = () => visiveis().filter(a=>a.n!=='medio').length;
 
 /* ---------------- tabelas ---------------- */
@@ -645,9 +632,10 @@ function viewResumo(m){
   {b:T.pc, s:'negócios perdidos por motivo comercial', dl:'ver os motivos', click:()=>irPara('resultado','perdido')},
   {b:(T.conv===null?'—':T.conv.toFixed(0)+'%'), s:'ganhos ÷ (ganhos + perdas) no período'}]));
  const dt = d => d.slice(8,10)+'/'+d.slice(5,7)+'/'+d.slice(0,4);
- const antes  = D.negocios.filter(x=>x.cr < PER.ini).length;
- const dentro = D.negocios.filter(criadoNoPer).length;
- const depois = D.negocios.filter(x=>x.cr > PER.fim).length;
+ const NN = D.negocios.filter(noEscopo);
+ const antes  = NN.filter(x=>x.cr < PER.ini).length;
+ const dentro = NN.filter(criadoNoPer).length;
+ const depois = NN.filter(x=>x.cr > PER.fim).length;
  const conta = el('<div class="conta"></div>');
  conta.append(el('<div class="cl"><span>'+nf(antes)+'</span> abertos antes de '+dt(PER.ini)
    +' e ainda no funil</div>'));
@@ -721,7 +709,7 @@ function diagnostico(n){
    semNota/p.negocios.length<=.2?'bom':'ruim']);
  if(negs.length) out.push([negs.filter(x=>x.temp==='quente').length+' negócios quentes na carteira de '
    +negs.length, negs.filter(x=>x.temp==='quente').length>0?'bom':'ruim']);
- const g = D.resultado.filter(x=>x.d===n && x.r==='ganho').length;
+ const g = D.resultado.filter(x=>noEscopo(x) && x.d===n && x.r==='ganho').length;
  out.push([g? g+' ganhos no histórico' : 'nenhum ganho registrado no histórico', g?'bom':'ruim']);
  return out;
 }
@@ -757,6 +745,32 @@ function viewPessoas(m){
      host.append(ta);
     });
 
+    const meus = (dados.reunioes||[]).filter(r=>(r.pessoas||[]).includes(n))
+      .sort((a,b)=> a.data < b.data ? 1 : -1);
+    const abertosN = meus.flatMap(r=>(r.comp||[]).filter(c=>!c.feito && (!c.quem || c.quem===n)));
+    host.append(el('<h4 class="sec">Reuniões com '+esc(n)+'</h4>'));
+    if(!meus.length){
+     host.append(el('<div class="empty">Nenhuma reunião registrada com '+esc(n)+'. '
+      +'A aba Reuniões é onde isso fica.</div>'));
+    } else {
+     const ult = meus[0];
+     host.append(el('<p class="mini">'+meus.length+' registrada'+(meus.length>1?'s':'')
+      +', a última em '+dbr(ult.data)+' ('+esc(tipoPor(ult.tipo).nome)+')'
+      +(abertosN.length? ' · <b class="warn">'+abertosN.length+' combinado'
+        +(abertosN.length>1?'s':'')+' em aberto</b>' : '')+'</p>'));
+     if(abertosN.length) host.append(el('<div class="hist">'+abertosN.map(c=>'<div class="it">'
+      +'<div class="cab"><b>'+esc(c.oque||'(sem descrição)')+'</b><span>'
+      +(c.quando? dbr(c.quando):'sem prazo')+'</span></div></div>').join('')+'</div>'));
+    }
+    const ir = el('<div class="actions" style="margin-top:12px;padding-top:12px">'
+      +'<button class="btn ghost sm">Registrar 1:1 com '+esc(n)+'</button></div>');
+    ir.querySelector('button').onclick = () => {
+     dados.reunioes = dados.reunioes || [];
+     dados.reunioes.unshift(novaReuniao('1a1', n));
+     salvar(); atual='reunioes'; render(); window.scrollTo({top:0});
+    };
+    host.append(ir);
+
     host.append(el('<h4 class="sec">Negócios trabalhados no período</h4>'));
     detalhePessoa(host, n);
    });
@@ -786,20 +800,52 @@ const ORDEM_ETAPA = {'Lead':1,'Lead novo':1,'Em contato':2,'Realizando contato':
  'Mídia Kit':5,'Análise Documentação':5,'Apresentando oportunidades':5,'Visita':6,'Portfólio':6,
  'Proposta':7,'Fechamento':8,'Fechado':9,'Nutrição':10,'Longo prazo':10,'Longo Prazo':10,
  'Sem interesse':11,'Arquivado':11,'Não respondeu - IA':11,'Sem número':11};
+const FUNIS = ['Vendas','SDR','Painéis','Angariação'];
+
+/* Cada empresa é um conjunto de funis. Nada é somado entre elas por acidente:
+   negócios, atividades, pessoas, resultado e alertas ficam dentro do escopo. */
+const EMPRESAS = [
+ {id:'izi',     nome:'Izi Imóveis', funis:['Vendas','SDR','Angariação']},
+ {id:'paineis', nome:'BJ7 Painéis', funis:['Painéis']},
+ {id:'grupo',   nome:'Grupo',       funis:FUNIS},
+];
+let EMP = EMPRESAS[0];
+const noEscopo = x => EMP.funis.includes(x.f);
+
+/* de qual empresa é cada negócio, para classificar as atividades */
+const EMP_DO_NEGOCIO = {};
+[...D.negocios, ...D.resultado].forEach(x=>{
+ const e = EMPRESAS.find(z=>z.id!=='grupo' && z.funis.includes(x.f));
+ if(e) EMP_DO_NEGOCIO[x.id] = e.id;
+});
+/* atividade sem negócio herda a empresa onde a pessoa mais trabalha */
+const EMP_DA_PESSOA = (() => {
+ const c = {};
+ [...D.negocios, ...D.resultado].forEach(x=>{ const e = EMP_DO_NEGOCIO[x.id]; if(!e || !x.d) return;
+  (c[x.d] = c[x.d] || {})[e] = ((c[x.d]||{})[e]||0)+1; });
+ const out = {};
+ Object.entries(c).forEach(([n,m])=>{
+  out[n] = Object.entries(m).sort((a,b)=>b[1]-a[1])[0][0]; });
+ return out;
+})();
+const ativNoEscopo = a => EMP.id==='grupo' ? true
+  : a.i ? EMP_DO_NEGOCIO[a.i] === EMP.id
+        : EMP_DA_PESSOA[a.a] === EMP.id;
 const noPeriodo  = x => x.q  >= PER.ini && x.q  <= PER.fim;   /* fechado no período */
 const criadoNoPer = x => x.cr >= PER.ini && x.cr <= PER.fim;   /* aberto no período */
 
 function totais(){
- const g  = D.resultado.filter(x=>x.r==='ganho' && noPeriodo(x));
- const pc = D.resultado.filter(x=>x.r==='perdido' && !x.op && noPeriodo(x));
- const po = D.resultado.filter(x=>x.r==='perdido' && x.op && noPeriodo(x));
- const novos = D.negocios.filter(criadoNoPer).length
-             + D.resultado.filter(criadoNoPer).length;
- return {novos, carteira: D.negocios.length, g:g.length, pc:pc.length, po:po.length,
+ const R = D.resultado.filter(noEscopo);
+ const g  = R.filter(x=>x.r==='ganho' && noPeriodo(x));
+ const pc = R.filter(x=>x.r==='perdido' && !x.op && noPeriodo(x));
+ const po = R.filter(x=>x.r==='perdido' && x.op && noPeriodo(x));
+ const novos = D.negocios.filter(x=>noEscopo(x)&&criadoNoPer(x)).length
+             + R.filter(criadoNoPer).length;
+ return {novos, carteira: D.negocios.filter(noEscopo).length, g:g.length, pc:pc.length, po:po.length,
    conv: (g.length+pc.length) ? g.length/(g.length+pc.length)*100 : null};
 }
 function porFunil(){
- return FUNIS.map(f=>{
+ return EMP.funis.map(f=>{
   const noF = x => x.f===f;
   const g  = D.resultado.filter(x=>noF(x) && x.r==='ganho' && noPeriodo(x)).length;
   const pc = D.resultado.filter(x=>noF(x) && x.r==='perdido' && !x.op && noPeriodo(x)).length;
@@ -1014,10 +1060,10 @@ function tabelaUnidade(host, itens){
 }
 
 function viewAlertas(m){
- const vis = visiveis(), esc_ = ALERTAS.filter(a=>a.empresa===empresaAtual && oculto(a));
+ const vis = visiveis(), esc_ = ALERTAS.filter(oculto);
  m.append(el('<p class="lede">Clique para ver o que significa, a ação recomendada e a lista dos negócios '
   +'afetados. Se um alerta não se aplica ao seu caso, dá para ocultar — ele fica guardado no fim da página.</p>'));
- if(!vis.length) m.append(el('<div class="empty">Todos os alertas estão ocultos.</div>'));
+ if(!vis.length) m.append(el('<div class="empty">Nenhum alerta aberto para '+esc(EMP.nome)+'.</div>'));
  vis.forEach(a=>{
   linha(m,
    '<div class="hd"><span class="nm">'+esc(a.t)+'</span><span class="tag '+TAG[a.n][0]
@@ -1211,10 +1257,9 @@ function viewQuentes(m){
   kp.querySelectorAll('.kpib').forEach(c=>c.classList.toggle('on', c.dataset.t===fTemp));
   segD.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.d===fDono));
   const rows = V.negocios.filter(x => (!fTemp || x.temp===fTemp) && (!fDono || x.d===fDono));
-  const naEmpresa = V.negocios.filter(x => !fTemp || x.temp===fTemp).length;
+  const noGrupo = V.negocios.filter(x => !fTemp || x.temp===fTemp).length;
   titulo.innerHTML = '<b>'+nf(rows.length)+'</b> ' + NOME[fTemp]
-   + (fDono ? ' de ' + fDono + ', de ' + nf(naEmpresa) + ' da '+EMPRESAS[empresaAtual].rot
-      : ' na '+EMPRESAS[empresaAtual].rot);
+   + (fDono ? ' de ' + fDono + ', de ' + nf(noGrupo) + ' do grupo' : ' no grupo inteiro');
   alvo.innerHTML='';
   if(!rows.length){ alvo.append(el('<div class="empty">Nada nesta combinação.</div>')); return; }
   tabela(alvo, rows, [
@@ -1374,7 +1419,7 @@ function viewLeitura(m){
 
 /* ---------------- resultado ---------------- */
 function viewResultado(m){
- const R = D.resultado;
+ const R = D.resultado.filter(noEscopo);
  const noPer = x => x.q >= PER.ini && x.q <= PER.fim;
  const dur = dif(PER.ini, PER.fim) + 1;
  const antIni = new Date(new Date(PER.ini+'T12:00:00') - dur*864e5).toISOString().slice(0,10);
@@ -1391,8 +1436,8 @@ function viewResultado(m){
  const A = bloco(noPer), B = bloco(noAnt);
  const delta = (a,b) => b===0 ? (a>0?'+'+a:'—') : (a-b>0?'+':'')+(a-b);
 
- const ultimo = R.filter(x=>x.r==='ganho').map(x=>x.q).sort().pop();
- const semGanho = dif(ultimo, D.hoje);
+ const ultimo = R.filter(x=>x.r==='ganho').map(x=>x.q).sort().pop() || null;
+ const semGanho = ultimo ? dif(ultimo, D.hoje) : null;
 
  /* --- faixa de topo --- */
  m.append(el('<p class="lede">Ganhos e perdas em <b>'+PER.rot+'</b>, comparados com os '
@@ -1410,9 +1455,11 @@ function viewResultado(m){
  pintaKp();
 
  if(!A.g.length && !A.pc.length){
-  m.append(el('<div class="empty" style="margin-top:14px">Nenhum negócio foi ganho ou perdido neste '
-   +'período. A '+EMPRESAS[empresaAtual].rot+' está há <b>'+semGanho+' dias</b> sem registrar um ganho — o último foi em '
-   +ultimo.slice(8,10)+'/'+ultimo.slice(5,7)+'/'+ultimo.slice(0,4)+'.</div>'));
+  m.append(el('<div class="empty" style="margin-top:14px">Nenhum negócio foi ganho ou perdido em '
+   + esc(EMP.nome) + ' neste período. '
+   + (ultimo ? 'O último ganho foi em '+dbr(ultimo)+', há <b>'+semGanho+' dias</b>.'
+     : '<b>'+esc(EMP.nome)+' nunca registrou um ganho.</b> Não é conversão baixa: é ausência de '
+       +'registro de fechamento.')+'</div>'));
  }
 
  /* --- por responsável no período --- */
@@ -1483,13 +1530,14 @@ function viewResultado(m){
  m.append(el('<h2>Histórico completo</h2>'));
  const tg = R.filter(x=>x.r==='ganho'), tp = R.filter(x=>x.r==='perdido' && !x.op);
  m.append(el('<p class="lede">Independe do período acima. '+tg.length+' ganhos e '+tp.length
-  +' perdas comerciais desde que o CRM existe — conversão de '
-  +(tg.length/(tg.length+tp.length)*100).toFixed(0)+'%. Último ganho há <b>'+semGanho+' dias</b>.</p>'));
+  +' perdas comerciais em '+esc(EMP.nome)+' desde que o CRM existe'
+  +(tg.length+tp.length ? ' — conversão de '+(tg.length/(tg.length+tp.length)*100).toFixed(0)+'%' : '')
+  +(semGanho!==null ? '. Último ganho há <b>'+semGanho+' dias</b>.' : '.')+'</p>'));
 
  const meses = [...new Set(R.map(x=>x.q.slice(0,7)))].sort();
  const porMes = meses.map(mm=>({mm, g:tg.filter(x=>x.q.startsWith(mm)).length,
                                      p:tp.filter(x=>x.q.startsWith(mm)).length}));
- const maxM = Math.max(1, ...porMes.map(x=>x.g+x.p));
+ const maxM = Math.max(1, ...porMes.map(x=>x.g+x.p), 1);
  const ch = el('<div class="chart"><div class="dias" style="height:78px"></div>'
   +'<div class="rot"></div><div class="leitura">Verde é ganho, rosa é perda. Toque num mês.</div></div>');
  const bs = ch.querySelector('.dias'), rt = ch.querySelector('.rot'), lt = ch.querySelector('.leitura');
@@ -1510,13 +1558,17 @@ function viewResultado(m){
 
  /* --- ciclo --- */
  m.append(el('<h2>Ciclo até o fechamento</h2>'));
- const cg = tg.map(x=>x.c).sort((a,b)=>a-b);
+ const cg = tg.map(x=>x.c).filter(c=>c!=null).sort((a,b)=>a-b);
+ if(!cg.length){
+  m.append(el('<div class="empty">Sem nenhum ganho registrado, não existe ciclo para medir.</div>'));
+ } else {
  const rapidos = tg.filter(x=>x.c<=2).length;
  m.append(el('<p class="lede">Mediana de <b>'+cg[Math.floor(cg.length/2)]+' dias</b>, mas '+rapidos
   +' dos '+tg.length+' foram abertos e ganhos em até 2 dias, todos em Angariação: registro feito depois '
   +'do fato, não negócio acompanhado. Ciclo de venda real existe em '
   +tg.filter(x=>x.f!=='Angariação').length+' casos: '
   +tg.filter(x=>x.f!=='Angariação').map(x=>x.c+'d').join(', ')+'.</p>'));
+ }
 
  m.append(el('<h2>Fechamentos</h2>'));
  const tabBox = el('<div></div>'); m.append(tabBox);
@@ -1711,24 +1763,218 @@ function viewAtividades(m){
  troca();
 }
 
+/* ---------------- reuniões e 1:1 ---------------- */
+const TIPOS_PADRAO = [
+ {id:'1a1', nome:'1:1', desc:'Conversa individual de desenvolvimento. Quem fala mais é o colaborador.',
+  pontos:['Como você está','O que te travou desde a última vez','O que você quer desenvolver',
+          'Feedback que eu tenho para você','O que combinamos até a próxima']},
+ {id:'estrategia', nome:'Estratégia',
+  desc:'Decisão que muda rumo. O valor está em registrar o porquê, não só o quê.',
+  pontos:['Contexto e o que motivou','Opções que avaliamos','Decisão','Por que essa e não a outra',
+          'Riscos que aceitamos']},
+ {id:'operacional', nome:'Operacional',
+  desc:'Alinhamento de rotina, processo ou problema pontual.',
+  pontos:['Pauta','O que ficou decidido']},
+];
+const tiposReuniao = () => (dados.tipos && dados.tipos.length) ? dados.tipos : TIPOS_PADRAO;
+const tipoPor = id => tiposReuniao().find(t=>t.id===id) || tiposReuniao()[0];
+const reunioes = () => (dados.reunioes||[]).filter(r => EMP.id==='grupo' || r.emp===EMP.id)
+  .sort((a,b)=> a.data < b.data ? 1 : -1);
+const compromissosAbertos = () => reunioes().flatMap(r =>
+  (r.comp||[]).map((c,i)=>({...r_ref(r), c, i, r})).filter(x=>!x.c.feito));
+const r_ref = r => ({data:r.data, tipo:r.tipo, com:(r.pessoas||[]).join(', ')});
+
+function novaReuniao(tipoId, prefPessoa){
+ const t = tipoPor(tipoId);
+ return {id:'r'+Date.now(), emp:EMP.id==='grupo'?'grupo':EMP.id, tipo:t.id, data:HOJE,
+   pessoas: prefPessoa?[prefPessoa]:[], pontos:{}, comp:[]};
+}
+
+function editorReuniao(host, r, aoSalvar){
+ const t = tipoPor(r.tipo);
+ host.append(el('<label>Data</label>'));
+ const dt = el('<input type="date" class="search" style="max-width:190px">'); dt.value = r.data;
+ dt.onchange = () => { r.data = dt.value; aoSalvar(); };
+ host.append(dt);
+
+ host.append(el('<label>Com quem</label>'));
+ const seg = el('<div class="seg" style="flex-wrap:wrap">'
+  + NOMES.map(n=>'<button data-n="'+esc(n)+'">'+esc(n)+'</button>').join('') + '</div>');
+ const marca = () => seg.querySelectorAll('button').forEach(b=>
+   b.classList.toggle('on', (r.pessoas||[]).includes(b.dataset.n)));
+ seg.querySelectorAll('button').forEach(b => b.onclick = () => {
+  r.pessoas = r.pessoas || [];
+  const i = r.pessoas.indexOf(b.dataset.n);
+  if(i<0) r.pessoas.push(b.dataset.n); else r.pessoas.splice(i,1);
+  marca(); aoSalvar();
+ });
+ marca(); host.append(seg);
+
+ t.pontos.forEach((ponto,i)=>{
+  host.append(el('<label for="'+r.id+'-p'+i+'">'+esc(ponto)+'</label>'));
+  const ta = el('<textarea id="'+r.id+'-p'+i+'" rows="3"></textarea>');
+  ta.value = (r.pontos||{})[ponto] || '';
+  ta.oninput = () => { r.pontos = r.pontos||{}; r.pontos[ponto] = ta.value; aoSalvar(); };
+  host.append(ta);
+ });
+
+ host.append(el('<h4 class="sec" style="margin-top:20px">Combinados</h4>'));
+ host.append(el('<p class="mini">O que ficou combinado, com dono e prazo. Fica aberto até alguém marcar.</p>'));
+ const cx = el('<div></div>'); host.append(cx);
+ const pintaComp = () => {
+  cx.innerHTML='';
+  (r.comp||[]).forEach((c,i)=>{
+   const linha_ = el('<div class="comp'+(c.feito?' feito':'')+'">'
+    +'<button class="chk" aria-label="Marcar como feito">'+(c.feito?'✓':'')+'</button>'
+    +'<div class="cp"><input class="search cpo" placeholder="O que ficou combinado">'
+    +'<div class="cpb"><select class="selmes cpq"><option value="">Quem…</option>'
+    + NOMES.map(n=>'<option value="'+esc(n)+'">'+esc(n)+'</option>').join('')
+    +'</select><input type="date" class="search cpd" style="max-width:160px"></div></div>'
+    +'<button class="btn ghost sm" data-del aria-label="Remover">Remover</button></div>');
+   const o=linha_.querySelector('.cpo'), q=linha_.querySelector('.cpq'), dd=linha_.querySelector('.cpd');
+   o.value=c.oque||''; q.value=c.quem||''; dd.value=c.quando||'';
+   o.oninput=()=>{c.oque=o.value; aoSalvar();};
+   q.onchange=()=>{c.quem=q.value; aoSalvar();};
+   dd.onchange=()=>{c.quando=dd.value; aoSalvar();};
+   linha_.querySelector('.chk').onclick=()=>{ c.feito=!c.feito; aoSalvar(); pintaComp(); };
+   linha_.querySelector('[data-del]').onclick=()=>{ r.comp.splice(i,1); aoSalvar(); pintaComp(); };
+   cx.append(linha_);
+  });
+  const add = el('<button class="btn ghost sm" style="margin-top:8px">Adicionar combinado</button>');
+  add.onclick = () => { r.comp = r.comp||[]; r.comp.push({oque:'',quem:'',quando:'',feito:false});
+    aoSalvar(); pintaComp(); };
+  cx.append(add);
+ };
+ pintaComp();
+}
+
+function viewReunioes(m){
+ dados.reunioes = dados.reunioes || [];
+ const lista = reunioes();
+ const abertos = compromissosAbertos();
+ const atrasados = abertos.filter(x=>x.c.quando && x.c.quando < HOJE);
+
+ m.append(el('<p class="lede">Onde ficam registrados os 1:1 e as reuniões de decisão de '
+  +esc(EMP.nome)+'. O que foi conversado, o que ficou combinado, e com quem. '
+  +'Os pontos de cada tipo de reunião são configuráveis no fim da página.</p>'));
+
+ m.append(cartoes([
+  {b:lista.length, s:'reuniões registradas'},
+  {b:lista.filter(r=>r.tipo==='1a1').length, s:'1:1 com o time'},
+  {b:abertos.length, s:'combinados em aberto'},
+  {b:atrasados.length, s:'combinados fora do prazo'}]));
+
+ if(abertos.length){
+  m.append(el('<h2>Combinados em aberto</h2>'));
+  const bx = el('<div></div>');
+  abertos.sort((a,b)=> (a.c.quando||'9999') < (b.c.quando||'9999') ? -1 : 1).forEach(x=>{
+   const atras = x.c.quando && x.c.quando < HOJE;
+   const l = el('<div class="conv" style="grid-template-columns:1fr auto auto;gap:10px">'
+    +'<div><span class="nm">'+esc(x.c.oque||'(sem descrição)')+'</span>'
+    +'<div class="sub">'+esc(x.c.quem||'sem dono')+' · combinado em '+dbr(x.data)
+    +' no '+esc(tipoPor(x.tipo).nome)+'</div></div>'
+    +'<span class="'+(atras?'warn':'mini')+'">'+(x.c.quando? dbr(x.c.quando) : 'sem prazo')+'</span>'
+    +'<button class="btn ghost sm">Feito</button></div>');
+   l.querySelector('button').onclick = () => { x.c.feito = true; salvar(); render(); };
+   bx.append(l);
+  });
+  m.append(bx);
+ }
+
+ m.append(el('<h2>Registrar reunião</h2>'));
+ const nova = el('<div class="seg" style="flex-wrap:wrap;margin-bottom:6px">'
+  + tiposReuniao().map(t=>'<button data-t="'+t.id+'">'+esc(t.nome)+'</button>').join('') + '</div>');
+ m.append(nova);
+ nova.querySelectorAll('button').forEach(b => b.onclick = () => {
+  const r = novaReuniao(b.dataset.t);
+  dados.reunioes.unshift(r); salvar(); render();
+ });
+
+ m.append(el('<h2>Histórico</h2>'));
+ if(!lista.length){
+  m.append(el('<div class="empty">Nenhuma reunião registrada ainda. Escolha um tipo acima para começar.</div>'));
+ }
+ const hx = el('<div></div>'); m.append(hx);
+ lista.forEach(r=>{
+  const t = tipoPor(r.tipo);
+  const preenchidos = Object.values(r.pontos||{}).filter(v=>(v||'').trim()).length;
+  const abertosR = (r.comp||[]).filter(c=>!c.feito).length;
+  linha(hx,
+   '<div class="hd"><span class="nm">'+esc(t.nome)
+    +((r.pessoas||[]).length? ' — '+esc(r.pessoas.join(', ')) : '')+'</span>'
+    +'<span class="stat num">'+dbr(r.data)+'</span></div>'
+    +'<div class="sub">'+preenchidos+' de '+t.pontos.length+' pontos escritos'
+    +(abertosR? ' · '+abertosR+' combinado'+(abertosR>1?'s':'')+' em aberto' : '')+'</div>',
+   host => {
+    host.append(el('<p class="mini" style="margin-top:12px">'+esc(t.desc)+'</p>'));
+    editorReuniao(host, r, salvar);
+    const ac = el('<div class="actions"><button class="btn ghost sm">Apagar esta reunião</button></div>');
+    ac.querySelector('button').onclick = () => {
+     if(!confirm('Apagar esta reunião e tudo que foi escrito nela?')) return;
+     dados.reunioes = dados.reunioes.filter(z=>z.id!==r.id); salvar(); render();
+    };
+    host.append(ac);
+   });
+ });
+
+ /* --- tipos configuráveis --- */
+ m.append(el('<h2>Tipos de reunião</h2>'));
+ m.append(el('<p class="lede">Os pontos de cada tipo são o roteiro da conversa. Edite para o formato que '
+  +'você usa — um ponto por linha.</p>'));
+ const tx = el('<div></div>'); m.append(tx);
+ const pintaTipos = () => {
+  tx.innerHTML='';
+  tiposReuniao().forEach((t,i)=>{
+   linha(tx,
+    '<div class="hd"><span class="nm">'+esc(t.nome)+'</span>'
+     +'<span class="stat num">'+t.pontos.length+' pontos</span></div>'
+     +'<div class="sub">'+esc(t.desc||'')+'</div>',
+    host => {
+     host.append(el('<label>Nome</label>'));
+     const nm = el('<input class="search">'); nm.value = t.nome;
+     host.append(nm);
+     host.append(el('<label>Para que serve</label>'));
+     const de = el('<textarea rows="2"></textarea>'); de.value = t.desc||'';
+     host.append(de);
+     host.append(el('<label>Pontos, um por linha</label>'));
+     const po = el('<textarea rows="6"></textarea>'); po.value = t.pontos.join('\n');
+     host.append(po);
+     const ac = el('<div class="actions"><button class="btn sm">Salvar tipo</button>'
+       +'<button class="btn ghost sm" data-novo>Duplicar como novo</button></div>');
+     const gravar = (novo) => {
+      dados.tipos = tiposReuniao().map(z=>({...z}));
+      const pts = po.value.split('\n').map(x=>x.trim()).filter(Boolean);
+      if(novo) dados.tipos.push({id:'t'+Date.now(), nome:nm.value+' (cópia)', desc:de.value, pontos:pts});
+      else { const alvo = dados.tipos.find(z=>z.id===t.id);
+             alvo.nome = nm.value; alvo.desc = de.value; alvo.pontos = pts; }
+      salvar(); render();
+     };
+     ac.querySelector('.btn.sm').onclick = () => gravar(false);
+     ac.querySelector('[data-novo]').onclick = () => gravar(true);
+     host.append(ac);
+    });
+  });
+ };
+ pintaTipos();
+}
+
 /* ---------------- matinal ---------------- */
 const CAMPOS = [
  ['compromissos','Compromissos assumidos ontem','Quem prometeu o quê, e para quando.'],
  ['travas','Travas que dependem de mim','Decisões que só você destrava.'],
  ['notas','Anotações livres',''],
 ];
-const estadoEmpresas = {izi:{}, paineis:{}};
-let dados = estadoEmpresas.izi;
+let dados = {};
 
 function fechamentoDia(dia){
- const A = D.ativ.filter(x=>x.q===dia);
+ const A = D.ativ.filter(x=>x.q===dia && ativNoEscopo(x));
  return NOMES.map(n=>{
   const meus = A.filter(x=>x.a===n);
   return {n,
    trab: new Set(meus.filter(x=>x.i).map(x=>x.i)).size,
    cont: meus.filter(x=>REAL.includes(x.t)).length,
-   ganhos: D.resultado.filter(x=>x.d===n && x.r==='ganho' && x.q===dia).length,
-   perdidos: D.resultado.filter(x=>x.d===n && x.r==='perdido' && !x.op && x.q===dia).length};
+   ganhos: D.resultado.filter(x=>noEscopo(x) && x.d===n && x.r==='ganho' && x.q===dia).length,
+   perdidos: D.resultado.filter(x=>noEscopo(x) && x.d===n && x.r==='perdido' && !x.op && x.q===dia).length};
  });
 }
 
@@ -1738,7 +1984,7 @@ function viewMatinal(m){
   +'salvo e entra na apresentação.</p>'));
 
  /* --- 1. fechamento de ontem, calculado --- */
- const dias = [...new Set(D.ativ.map(x=>x.q))].sort().reverse();
+ const dias = [...new Set(D.ativ.filter(ativNoEscopo).map(x=>x.q))].sort().reverse();
  let diaSel = dias[0];
  m.append(el('<h2>1 · Fechamento do dia</h2>'));
  m.append(el('<p class="lede">Calculado do Pipedrive. Ninguém digita.</p>'));
@@ -1820,18 +2066,30 @@ let tmr;
 function salvar(){
  clearTimeout(tmr);
  tmr = setTimeout(async () => {
-  const s = document.getElementById('saved'); if(!s) return;
-  estadoEmpresas[empresaAtual] = dados;
-  try { await window.storage.set('matinal:'+empresaAtual+':campos', JSON.stringify(dados)); s.textContent = 'Salvo'; }
-  catch(e){ s.textContent = 'Não consegui salvar — copie o texto antes de fechar'; return; }
+  /* O aviso "Salvo" só existe na Matinal, mas a gravação vale para todas as abas:
+     PDI, alertas ocultos e reuniões também passam por aqui. */
+  const s = document.getElementById('saved');
+  try { await window.storage.set('matinal:campos', JSON.stringify(dados));
+        if(s) s.textContent = 'Salvo'; }
+  catch(e){ if(s) s.textContent = 'Não consegui salvar — copie o texto antes de fechar';
+            else avisarFalhaAoSalvar(); return; }
   setTimeout(()=>{ if(s) s.textContent=''; }, 2000);
  }, 600);
+}
+let jaAvisou = false;
+function avisarFalhaAoSalvar(){
+ if(jaAvisou) return; jaAvisou = true;
+ const n = el('<div class="mask"><div class="modal" role="dialog" aria-modal="true">'
+  +'<h3>Não consegui salvar</h3><p class="lede">O que você escreveu não foi gravado. '
+  +'Copie o texto antes de fechar a página.</p>'
+  +'<div class="actions"><button class="btn" data-x>Entendi</button></div></div></div>');
+ n.querySelector('[data-x]').onclick = () => { n.remove(); jaAvisou = false; };
+ document.body.append(n);
 }
 
 function corpoApresentacao(){
  const T = totais();
- let h = '<h2>'+EMPRESAS[empresaAtual].rot+' — reunião de gestão</h2>'
-  +'<p class="mini">Período: '+PER.rot+'.</p>'
+ let h = '<h2>Matinal — '+PER.rot+'</h2>'
   +'<p class="mini">Pipedrive, extraído em '+D.extracao+'. Recorte: '+PER.ini.slice(8,10)+'/'+PER.ini.slice(5,7)
   +' a '+PER.fim.slice(8,10)+'/'+PER.fim.slice(5,7)+'.</p>'
   +'<table><thead><tr><th>Pessoa</th><th class="r">Negócios trabalhados</th><th class="r">Contatos</th>'
@@ -1870,7 +2128,15 @@ function corpoApresentacao(){
      .map(([k,rot])=>'<span class="mini">'+rot+':</span> '+esc(pdi[n][k])).join('<br>') + '</p>';
   });
  }
- const ultDia = [...new Set(D.ativ.map(x=>x.q))].sort().pop();
+ const ab = compromissosAbertos();
+ if(ab.length){
+  h += '<h2>Combinados em aberto</h2><table><thead><tr><th>O quê</th><th>Quem</th>'
+   +'<th>Prazo</th><th>Combinado em</th></tr></thead><tbody>'
+   + ab.map(x=>'<tr><td>'+esc(x.c.oque||'—')+'</td><td>'+esc(x.c.quem||'—')+'</td><td>'
+     +(x.c.quando? dbr(x.c.quando):'—')+'</td><td>'+dbr(x.data)+'</td></tr>').join('')
+   + '</tbody></table>';
+ }
+ const ultDia = [...new Set(D.ativ.filter(ativNoEscopo).map(x=>x.q))].sort().pop();
  if(ultDia){
   h += '<h2>Fechamento de '+ultDia.slice(8,10)+'/'+ultDia.slice(5,7)+'</h2>'
    +'<table><thead><tr><th>Pessoa</th><th class="r">Trabalhados</th><th class="r">Contatos</th>'
@@ -1922,7 +2188,7 @@ function imprimir(){
 
  tela.querySelector('[data-pdf]').onclick = e => {
   const doc = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">'
-   +'<title>'+EMPRESAS[empresaAtual].rot+' — '+PER.rot+'</title><style>'
+   +'<title>Matinal BJ7 — '+PER.rot+'</title><style>'
    +'body{font:12pt/1.5 -apple-system,Helvetica,Arial,sans-serif;color:#171A1C;margin:26px;max-width:760px}'
    +'h2{font-size:13pt;margin:20px 0 6px;color:#0B5F52}table{width:100%;border-collapse:collapse;font-size:11pt}'
    +'th{text-align:left;font-size:10pt;color:#6A7278;border-bottom:1px solid #CFD2CD;padding:6px 8px}'
@@ -1945,6 +2211,26 @@ function imprimir(){
  document.body.append(tela);
  tela.querySelector('[data-x]').focus();
 }
+
+/* ---------------- seletor de empresa ---------------- */
+function montarEmpresas(){
+ const box = document.getElementById('empresas');
+ const seg = el('<div class="seg">' + EMPRESAS.map(e=>
+   '<button data-e="'+e.id+'">'+e.nome+'</button>').join('') + '</div>');
+ const res = el('<span class="res" id="eres"></span>');
+ box.append(seg, res);
+ const troca = id => {
+  EMP = EMPRESAS.find(e=>e.id===id);
+  seg.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.e===id));
+  calcular();
+  res.textContent = nf(V.negocios.length) + ' negócios · ' + NOMES.length
+    + (NOMES.length===1?' pessoa':' pessoas');
+  render();
+ };
+ seg.querySelectorAll('button').forEach(b => b.onclick = () => troca(b.dataset.e));
+ return troca;
+}
+let trocarEmpresa;
 
 /* ---------------- seletor de período ---------------- */
 const MES_NOME = {'01':'jan','02':'fev','03':'mar','04':'abr','05':'mai','06':'jun',
@@ -1970,6 +2256,9 @@ function montarPeriodo(){
   calcular();
   const n = dif(ini,fim)+1;
   res.textContent = n + (n>1?' dias, ':' dia, ') + V.A.length + ' atividades';
+  const er = document.getElementById('eres');
+  if(er) er.textContent = nf(V.negocios.length) + ' negócios · ' + NOMES.length
+    + (NOMES.length===1?' pessoa':' pessoas');
   render();
  };
  const doMes = m => {
@@ -2009,54 +2298,19 @@ function linha(host, html, preencher){
  };
 }
 
+const ABAS = [['resumo','Resumo'],['quentes','Quentes'],['leitura','Leitura'],
+              ['atividades','Atividades'],['pessoas','Pessoas'],['carteira','Carteira'],
+              ['resultado','Resultado'],['reunioes','Reuniões'],['alertas','Alertas'],['matinal','Matinal']];
 let atual = 'resumo';
-const empresaNav = document.getElementById('empresaNav');
 const nav = document.getElementById('nav');
-
-function aplicarEscopo(){
- const cfg = EMPRESAS[empresaAtual];
- const funis = new Set(cfg.funis);
- FUNIS = [...cfg.funis];
- D = {...BASE,
-  negocios:BASE.negocios.filter(x=>funis.has(x.f)),
-  resultado:BASE.resultado.filter(x=>funis.has(x.f)),
-  ativ:BASE.ativ.filter(x=>funis.has(x.f))};
- EQUIPE = [...new Set([...D.ativ.map(x=>x.a), ...D.negocios.map(x=>x.d), ...D.resultado.map(x=>x.d)])]
-  .filter(n=>n && n!=='—');
- dados = estadoEmpresas[empresaAtual] || {};
- document.getElementById('brandTitle').textContent = cfg.rot;
- document.getElementById('brandSub').textContent = cfg.subtitulo;
- document.title = cfg.rot+' — Gestão BJ7';
-}
-
-function montarEmpresas(){
- empresaNav.innerHTML='';
- Object.entries(EMPRESAS).forEach(([id,cfg])=>{
-  const b = document.createElement('button');
-  b.dataset.id=id;
-  b.innerHTML=cfg.rot+'<span>'+cfg.subtitulo+'</span>';
-  b.onclick=()=>{
-   if(empresaAtual===id) return;
-   empresaAtual=id; atual='resumo'; PRESET=null;
-   aplicarEscopo(); calcular(); montarEmpresas(); montarAbas(); renderCobertura(); render();
-   window.scrollTo({top:0});
-  };
-  b.classList.toggle('on',id===empresaAtual);
-  empresaNav.append(b);
- });
-}
-
-function montarAbas(){
- nav.innerHTML='';
- EMPRESAS[empresaAtual].abas.forEach(([id,rot])=>{
-  const b = document.createElement('button');
-  b.dataset.rot = rot;
-  b.textContent = rot;
-  b.dataset.id = id;
-  b.onclick = () => { atual = id; render(); window.scrollTo({top:0}); };
-  nav.append(b);
- });
-}
+ABAS.forEach(([id,rot])=>{
+ const b = document.createElement('button');
+ b.dataset.rot = rot;
+ b.textContent = rot;
+ b.dataset.id = id;
+ b.onclick = () => { atual = id; render(); window.scrollTo({top:0}); };
+ nav.append(b);
+});
 
 function render(){
  [...nav.children].forEach(b => {
@@ -2067,8 +2321,9 @@ function render(){
  });
  const m = document.getElementById('main');
  m.innerHTML = '';
- ({resumo:viewResumo, quentes:viewQuentes, leitura:viewLeitura, resultado:viewResultado, atividades:viewAtividades,
-   pessoas:viewPessoas, operacao:m=>viewUnidade(m,EMPRESAS[empresaAtual].rot,FUNIS),
+ ({resumo:viewResumo, quentes:viewQuentes, leitura:viewLeitura, resultado:viewResultado,
+   atividades:viewAtividades, pessoas:viewPessoas,
+   carteira:m=>viewUnidade(m, EMP.nome, EMP.funis), reunioes:viewReunioes,
    alertas:viewAlertas, matinal:viewMatinal})[atual](m);
 }
 
@@ -2079,34 +2334,28 @@ window.addEventListener('scroll', () => {
  ultY = y;
 }, {passive:true});
 
-const funilPorId = Object.fromEntries([...BASE.negocios,...BASE.resultado].map(x=>[String(x.id),x.f]));
-BASE.ativ.forEach(x=>{ x.a=quem(x.a); if(!x.f) x.f=funilPorId[String(x.i)]||''; });
-BASE.negocios.forEach(x=> x.d = quem(x.d));
-BASE.resultado.forEach(x=> x.d = quem(x.d));
+D.ativ.forEach(x=> x.a = quem(x.a));
+D.negocios.forEach(x=> x.d = quem(x.d));
+D.resultado.forEach(x=> x.d = quem(x.d));
 
-function renderCobertura(){
- const semEmpresa = BASE.ativ.filter(x=>!x.f).length;
- document.getElementById('cobertura').innerHTML =
-   '<b>Dados exclusivos da '+EMPRESAS[empresaAtual].rot+'</b>'
-  +'<div class="cl"><span>Negócios</span> '+nf(D.negocios.length)+' abertos e '
-  +nf(D.resultado.length)+' fechados nos funis desta empresa</div>'
-  +'<div class="cl"><span>Atividades</span> '+nf(D.ativ.length)+' registros vinculados aos negócios desta empresa, '
-  +'de '+dbr(COB.ativDe)+' a '+dbr(COB.ativAte)+'</div>'
-  +'<div class="cl"><span>Separação</span> pessoas, resultados e indicadores são calculados somente com os '
-  +'funis '+FUNIS.join(', ')+'</div>'
-  +(semEmpresa?'<div class="cl"><span>Sem empresa</span> '+nf(semEmpresa)+' atividades sem negócio ou funil '
-    +'identificável ficam fora das duas empresas para não contaminar os números</div>':'')
-  +'<div class="cl"><span>Valores</span> em reais continuam fora do painel enquanto o campo valor do Pipedrive '
-  +'não for confiável</div>';
-}
+document.getElementById('cobertura').innerHTML =
+  '<b>O que este painel enxerga</b>'
+ +'<div class="cl"><span>Negócios</span> criados de '+dbr(COB.negDe)+' a '+dbr(D.janela.fim)
+ +' — 2.531 abertos e 92 fechados, com etapa, responsável, cliente e telefone</div>'
+ +'<div class="cl"><span>Atividades</span> concluídas de '+dbr(COB.ativDe)+' a '+dbr(COB.ativAte)
+ +' — '+nf(D.ativ.length)+' registros com canal, autor e o que foi escrito</div>'
+ +'<div class="cl"><span>Fora disso</span> o Pipedrive não tem registro. Antes de '+dbr(COB.ativDe)
+ +' nenhuma atividade foi lançada no sistema</div>'
+ +(COB.orfas? '<div class="cl"><span>'+COB.orfas+' atividades</span> apontam para negócios que foram '
+  +'apagados do Pipedrive. Ficam na lista, sem ficha para abrir</div>' : '')
+ +'<div class="cl"><span>Valores</span> em reais ficam fora de todo o painel: o campo valor do Pipedrive '
+ +'está inconsistente e não é confiável</div>';
 
 (async () => {
- for(const id of Object.keys(EMPRESAS)){
-  try { const r=await window.storage.get('matinal:'+id+':campos');
-        if(r) estadoEmpresas[id]=JSON.parse(r.value); }
-  catch(e){ estadoEmpresas[id]={}; }
- }
- aplicarEscopo(); montarEmpresas(); montarAbas(); renderCobertura();
+ try { const r = await window.storage.get('matinal:campos'); if(r) dados = JSON.parse(r.value); }
+ catch(e) { dados = {}; }
+ trocarEmpresa = montarEmpresas();
  montarPeriodo();
+ trocarEmpresa(EMP.id);
 })();
 </script></body></html>
