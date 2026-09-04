@@ -1812,6 +1812,269 @@ function viewAtividades(m){
  troca();
 }
 
+/* ---------------- motor de registros ----------------
+   Um único mecanismo para os cadastros de gestão. Cada módulo é uma
+   configuração de campos, não uma tela nova. Assim todos herdam de graça:
+   escopo por empresa, prazo com atraso, busca, contagem e gravação.
+   Modelo herdado do BJ7 Adm — contas a pagar, jurídico, marketing, documentos
+   e tarefas — reescrito na lógica desta central.                              */
+
+const MOEDA = v => (+v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+
+const MODULOS = [
+ {id:'tarefas', nome:'Tarefas', unidade:'tarefas',
+  desc:'O que precisa ser feito, com dono e prazo. Tudo que não vira tarefa vira esquecimento.',
+  prazo:'prazo', status:'status', concluido:['concluida','cancelada'],
+  campos:[
+   {k:'titulo', r:'O que precisa ser feito', t:'texto', principal:1},
+   {k:'responsavel', r:'Quem faz', t:'pessoa'},
+   {k:'prioridade', r:'Prioridade', t:'select', op:['alta','média','baixa'], padrao:'média'},
+   {k:'prazo', r:'Prazo', t:'data'},
+   {k:'status', r:'Situação', t:'select', op:['aberta','fazendo','concluida','cancelada'], padrao:'aberta'},
+   {k:'obs', r:'Detalhes', t:'longo'},
+  ]},
+ {id:'contas', nome:'Contas a pagar', unidade:'contas',
+  desc:'Compromissos com data e valor. O alerta é o vencimento, não o saldo.',
+  prazo:'vencimento', status:'status', concluido:['pago'], soma:'valor',
+  campos:[
+   {k:'descricao', r:'Do que se trata', t:'texto', principal:1},
+   {k:'valor', r:'Valor', t:'dinheiro'},
+   {k:'vencimento', r:'Vence em', t:'data'},
+   {k:'categoria', r:'Categoria', t:'texto'},
+   {k:'recorrencia', r:'Repete', t:'select', op:['única','mensal','trimestral','anual'], padrao:'única'},
+   {k:'status', r:'Situação', t:'select', op:['a pagar','pago'], padrao:'a pagar'},
+   {k:'obs', r:'Observação', t:'longo'},
+  ]},
+ {id:'juridico', nome:'Jurídico', unidade:'processos',
+  desc:'Processos e disputas em andamento. O que importa é a próxima data e quanto está em risco.',
+  prazo:'proxima', status:'status', concluido:['encerrado'], soma:'risco',
+  campos:[
+   {k:'processo', r:'Processo ou assunto', t:'texto', principal:1},
+   {k:'parte', r:'Parte contrária', t:'texto'},
+   {k:'tipo', r:'Tipo', t:'select', op:['cível','trabalhista','tributário','administrativo','outro']},
+   {k:'proxima', r:'Próxima data', t:'data'},
+   {k:'risco', r:'Valor em risco', t:'dinheiro'},
+   {k:'advogado', r:'Quem acompanha', t:'texto'},
+   {k:'status', r:'Situação', t:'select', op:['em andamento','aguardando','encerrado'], padrao:'em andamento'},
+   {k:'obs', r:'Onde está', t:'longo'},
+  ]},
+ {id:'marketing', nome:'Marketing', unidade:'campanhas',
+  desc:'Campanhas com orçamento e retorno. Sem lead contado, é gasto, não investimento.',
+  prazo:'fim', status:'status', concluido:['encerrada'], soma:'gasto',
+  campos:[
+   {k:'nome', r:'Campanha', t:'texto', principal:1},
+   {k:'canal', r:'Canal', t:'select', op:['Meta','Google','Instagram','outdoor','WhatsApp','outro']},
+   {k:'objetivo', r:'Objetivo', t:'texto'},
+   {k:'inicio', r:'Começa', t:'data'},
+   {k:'fim', r:'Termina', t:'data'},
+   {k:'orcamento', r:'Orçamento', t:'dinheiro'},
+   {k:'gasto', r:'Já gasto', t:'dinheiro'},
+   {k:'leads', r:'Leads gerados', t:'numero'},
+   {k:'status', r:'Situação', t:'select', op:['planejada','rodando','encerrada'], padrao:'planejada'},
+  ]},
+ {id:'documentos', nome:'Documentos', unidade:'documentos',
+  desc:'Contrato, licença, alvará, seguro. O valor está em avisar antes de vencer.',
+  prazo:'vencimento', status:'status', concluido:['renovado','encerrado'],
+  campos:[
+   {k:'nome', r:'Documento', t:'texto', principal:1},
+   {k:'tipo', r:'Tipo', t:'select', op:['contrato','licença','alvará','seguro','certidão','outro']},
+   {k:'vencimento', r:'Vence em', t:'data'},
+   {k:'responsavel', r:'Quem cuida', t:'pessoa'},
+   {k:'onde', r:'Onde está o arquivo', t:'texto'},
+   {k:'status', r:'Situação', t:'select', op:['vigente','renovar','renovado','encerrado'], padrao:'vigente'},
+   {k:'obs', r:'Observação', t:'longo'},
+  ]},
+ {id:'procedimentos', nome:'Procedimentos', unidade:'procedimentos',
+  desc:'O que roda sempre igual. Escrito uma vez, executado por qualquer um.',
+  prazo:'revisao', status:'status', concluido:['arquivado'],
+  campos:[
+   {k:'nome', r:'Procedimento', t:'texto', principal:1},
+   {k:'eixo', r:'Eixo', t:'select', op:['comercial','financeiro','operacional','pessoas','marketing','jurídico']},
+   {k:'responsavel', r:'Dono', t:'pessoa'},
+   {k:'frequencia', r:'Roda quando', t:'select', op:['diário','semanal','quinzenal','mensal','trimestral','sob demanda']},
+   {k:'revisao', r:'Revisar em', t:'data'},
+   {k:'passos', r:'Passo a passo', t:'longo'},
+   {k:'status', r:'Situação', t:'select', op:['ativo','rascunho','arquivado'], padrao:'rascunho'},
+  ]},
+];
+const modPor = id => MODULOS.find(m=>m.id===id);
+const regs = mid => (dados.registros && dados.registros[mid] || [])
+  .filter(r => EMP.id==='grupo' || r.emp===EMP.id);
+const emAberto = (mod, r) => !(mod.concluido||[]).includes(r[mod.status]);
+const atrasado = (mod, r) => emAberto(mod,r) && r[mod.prazo] && r[mod.prazo] < HOJE;
+const vencendo = (mod, r, dias) => { if(!emAberto(mod,r) || !r[mod.prazo]) return false;
+  const d = dif(HOJE, r[mod.prazo]); return d >= 0 && d <= dias; };
+
+function campoInput(r, c, aoSalvar, host){
+ const id = r.id+'-'+c.k;
+ host.append(el('<label for="'+id+'">'+esc(c.r)+'</label>'));
+ let inp;
+ if(c.t==='longo'){ inp = el('<textarea id="'+id+'" rows="3"></textarea>'); }
+ else if(c.t==='select'){
+  inp = el('<select class="selmes" id="'+id+'" style="width:100%;max-width:280px"><option value=""></option>'
+   + c.op.map(o=>'<option value="'+esc(o)+'">'+esc(o)+'</option>').join('') + '</select>');
+ }
+ else if(c.t==='pessoa'){
+  inp = el('<input class="search" id="'+id+'" list="pes-'+id+'" style="max-width:280px">');
+  host.append(el('<datalist id="pes-'+id+'">'
+   + NOMES.map(n=>'<option value="'+esc(n)+'"></option>').join('') + '</datalist>'));
+ }
+ else if(c.t==='data'){ inp = el('<input type="date" class="search" id="'+id+'" style="max-width:190px">'); }
+ else if(c.t==='numero' || c.t==='dinheiro'){
+  inp = el('<input type="number" step="'+(c.t==='dinheiro'?'0.01':'1')+'" inputmode="decimal" '
+   +'class="search" id="'+id+'" style="max-width:200px">');
+ }
+ else inp = el('<input class="search" id="'+id+'">');
+ inp.value = r[c.k] ?? '';
+ const ev = (c.t==='select'||c.t==='data') ? 'onchange' : 'oninput';
+ inp[ev] = () => { r[c.k] = inp.value; aoSalvar(); };
+ host.append(inp);
+}
+
+function mostraCampo(r, c){
+ const v = r[c.k];
+ if(v===undefined || v==='' || v===null) return '—';
+ if(c.t==='dinheiro') return MOEDA(v);
+ if(c.t==='data') return dbr(v);
+ return esc(String(v));
+}
+
+function viewModulo(m, mid){
+ dados.registros = dados.registros || {};
+ dados.registros[mid] = dados.registros[mid] || [];
+ const mod = modPor(mid);
+ const lista = regs(mid);
+ const abertos = lista.filter(r=>emAberto(mod,r));
+ const atras = lista.filter(r=>atrasado(mod,r));
+ const prox = lista.filter(r=>vencendo(mod,r,15) && !atrasado(mod,r));
+ const soma = mod.soma ? abertos.reduce((s,r)=>s+(+r[mod.soma]||0),0) : null;
+
+ m.append(el('<p class="lede">'+esc(mod.desc)+'</p>'));
+ m.append(cartoes([
+  {b:nf(abertos.length), s:'em aberto'},
+  {b:nf(atras.length), s:'com prazo vencido'},
+  {b:nf(prox.length), s:'vencendo em 15 dias'},
+  mod.soma ? {b:MOEDA(soma), s:'somado em aberto'} : {b:nf(lista.length), s:'no total, com os fechados'},
+ ]));
+
+ const nova = el('<button class="btn" style="margin-top:18px">Adicionar</button>');
+ nova.onclick = () => {
+  const novo = {id:'x'+Date.now(), emp: EMP.id==='grupo'?'grupo':EMP.id, criado:HOJE};
+  mod.campos.forEach(c=>{ if(c.padrao) novo[c.k]=c.padrao; });
+  dados.registros[mid].unshift(novo); salvar(); render();
+ };
+ m.append(nova);
+
+ let fSt = 'abertos';
+ const segS = el('<div class="seg" style="margin:16px 0 8px">'
+  +'<button class="on" data-s="abertos">Em aberto</button>'
+  +'<button data-s="atraso">Atrasados</button>'
+  +'<button data-s="todos">Todos</button></div>');
+ const busca = el('<input class="search" type="search" placeholder="Buscar…" style="margin-bottom:10px">');
+ const bx = el('<div></div>');
+ m.append(segS, busca, bx);
+
+ const principal = mod.campos.find(c=>c.principal) || mod.campos[0];
+ const resumoCampos = mod.campos.filter(c=>['select','data','dinheiro','pessoa','numero'].includes(c.t)).slice(0,4);
+
+ const pinta = () => {
+  segS.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.s===fSt));
+  bx.innerHTML='';
+  const termo = busca.value.toLowerCase();
+  const rows = lista
+   .filter(r => fSt==='todos' ? true : fSt==='atraso' ? atrasado(mod,r) : emAberto(mod,r))
+   .filter(r => !termo || mod.campos.some(c=>String(r[c.k]||'').toLowerCase().includes(termo)))
+   .sort((a,b)=> (a[mod.prazo]||'9999') < (b[mod.prazo]||'9999') ? -1 : 1);
+  if(!rows.length){ bx.append(el('<div class="empty">Nada aqui '
+   + (fSt==='abertos'?'em aberto':fSt==='atraso'?'atrasado':'ainda')+'.</div>')); return; }
+  rows.forEach(r=>{
+   const atr = atrasado(mod,r), prz = r[mod.prazo];
+   linha(bx,
+    '<div class="hd"><span class="nm">'+(r[principal.k] ? esc(r[principal.k]) : '<i class="mini">sem título</i>')+'</span>'
+     +(prz? '<span class="stat num '+(atr?'warn':'')+'">'+dbr(prz)
+        +(atr? ' · atrasado '+dif(prz,HOJE)+'d' : '')+'</span>' : '<span class="stat mini">sem prazo</span>')+'</div>'
+     +'<div class="sub">'+ resumoCampos.filter(c=>c.k!==mod.prazo && r[c.k])
+        .map(c=>esc(c.r)+': '+mostraCampo(r,c)).join(' · ') +'</div>',
+    host => {
+     mod.campos.forEach(c=> campoInput(r, c, salvar, host) );
+     const ac = el('<div class="actions"><button class="btn ghost sm" data-del>Apagar</button></div>');
+     ac.querySelector('[data-del]').onclick = () => {
+      if(!confirm('Apagar este registro?')) return;
+      dados.registros[mid] = dados.registros[mid].filter(z=>z.id!==r.id); salvar(); render();
+     };
+     host.append(ac);
+    });
+  });
+ };
+ segS.querySelectorAll('button').forEach(b=>b.onclick=()=>{ fSt=b.dataset.s; pinta(); });
+ busca.oninput = pinta;
+ pinta();
+}
+function pendencias(){
+ const out = [];
+ MODULOS.forEach(mod => regs(mod.id).forEach(r=>{
+  if(!emAberto(mod,r) || !r[mod.prazo]) return;
+  const p = mod.campos.find(c=>c.principal) || mod.campos[0];
+  const dono = r.responsavel || r.advogado || '';
+  out.push({quando:r[mod.prazo], o:r[p.k]||'(sem título)', quem:dono,
+    onde:mod.nome, aba:mod.id, ir:()=>{ atual=mod.id; render(); }});
+ }));
+ (dados.reunioes||[]).filter(r=>EMP.id==='grupo'||r.emp===EMP.id).forEach(r=>
+  (r.comp||[]).filter(c=>!c.feito && c.oque).forEach(c=>
+   out.push({quando:c.quando||'', o:c.oque, quem:c.quem||'', onde:'Combinado de reunião',
+     aba:'reunioes', ir:()=>{ atual='reunioes'; render(); }})));
+ (dados.okrs||[]).filter(o=>o.status!=='concluido' && (o.objetivo||'').trim()
+   && NOMES.includes(o.quem)).forEach(o=>
+  out.push({quando:o.prazo||'', o:o.objetivo, quem:o.quem, onde:'Objetivo',
+    aba:'pessoas', ir:()=>{ atual='pessoas'; render(); }}));
+ return out.sort((a,b)=> (a.quando||'9999') < (b.quando||'9999') ? -1 : 1);
+}
+
+function viewAgenda(m){
+ const p = pendencias();
+ const atras = p.filter(x=>x.quando && x.quando < HOJE);
+ const hoje  = p.filter(x=>x.quando === HOJE);
+ const semana= p.filter(x=>x.quando > HOJE && dif(HOJE,x.quando) <= 7);
+ const semData = p.filter(x=>!x.quando);
+
+ m.append(el('<p class="lede">Tudo que tem data e ainda não foi resolvido, de todos os módulos de '
+  +esc(EMP.nome)+': tarefas, contas, documentos, processos, campanhas, procedimentos, combinados de '
+  +'reunião e objetivos. É a resposta para <b>quem precisa agir hoje</b>.</p>'));
+
+ m.append(cartoes([
+  {b:atras.length, s:'vencidos'},
+  {b:hoje.length, s:'para hoje'},
+  {b:semana.length, s:'nos próximos 7 dias'},
+  {b:semData.length, s:'em aberto sem data marcada'}]));
+
+ const bloco = (titulo, itens, aviso) => {
+  if(!itens.length) return;
+  m.append(el('<h2>'+titulo+'</h2>'));
+  const bx = el('<div></div>');
+  itens.forEach(x=>{
+   const l = el('<div class="conv" style="grid-template-columns:1fr auto auto;gap:10px">'
+    +'<div><span class="nm">'+esc(x.o)+'</span>'
+    +'<div class="sub">'+esc(x.onde)+(x.quem? ' · '+esc(x.quem) : ' · sem dono')+'</div></div>'
+    +'<span class="'+(aviso?'warn':'mini')+'">'+(x.quando? dbr(x.quando):'sem data')+'</span>'
+    +'<button class="btn ghost sm">Abrir</button></div>');
+   l.querySelector('button').onclick = () => { x.ir(); window.scrollTo({top:0}); };
+   bx.append(l);
+  });
+  m.append(bx);
+ };
+ bloco('Vencidos', atras, true);
+ bloco('Hoje', hoje, true);
+ bloco('Próximos 7 dias', semana, false);
+ bloco('Sem data marcada', semData, false);
+ if(!p.length) m.append(el('<div class="empty" style="margin-top:16px">Nada em aberto com prazo. '
+  +'Comece cadastrando uma tarefa ou uma conta a pagar.</div>'));
+
+ /* sem dono é o vazamento clássico */
+ const semDono = p.filter(x=>!x.quem);
+ if(semDono.length) m.append(el('<p class="lede" style="margin-top:20px"><b>'+semDono.length
+  +'</b> pendências estão sem dono. Sem nome, ninguém faz — e na próxima reunião ninguém responde por elas.</p>'));
+}
+
 /* ---------------- reuniões e 1:1 ---------------- */
 /* Duas famílias, porque as perguntas são diferentes.
    COM O TIME: 1:1 e operacional — o assunto é a pessoa e o trabalho dela.
@@ -2238,6 +2501,13 @@ function corpoApresentacao(){
      .map(([k,rot])=>'<span class="mini">'+rot+':</span> '+esc(pdi[n][k])).join('<br>') + '</p>';
   });
  }
+ const pend = pendencias().filter(x=>x.quando && x.quando <= HOJE);
+ if(pend.length){
+  h += '<h2>Vencido ou para hoje</h2><table><thead><tr><th>O quê</th><th>Onde</th>'
+   +'<th>Quem</th><th>Data</th></tr></thead><tbody>'
+   + pend.map(x=>'<tr><td>'+esc(x.o)+'</td><td>'+esc(x.onde)+'</td><td>'+esc(x.quem||'—')
+     +'</td><td>'+dbr(x.quando)+'</td></tr>').join('') + '</tbody></table>';
+ }
  const ok = objetivosAbertos().filter(o=>(o.objetivo||'').trim());
  if(ok.length){
   h += '<h2>Objetivos em aberto</h2><table><thead><tr><th>Quem</th><th>Objetivo</th>'
@@ -2416,9 +2686,11 @@ function linha(host, html, preencher){
  };
 }
 
-const ABAS = [['resumo','Resumo'],['quentes','Quentes'],['leitura','Leitura'],
+const ABAS = [['agenda','Agenda'],['resumo','Resumo'],['quentes','Quentes'],['leitura','Leitura'],
               ['atividades','Atividades'],['pessoas','Pessoas'],['carteira','Carteira'],
-              ['resultado','Resultado'],['reunioes','Reuniões'],['alertas','Alertas'],['matinal','Matinal']];
+              ['resultado','Resultado'],['reunioes','Reuniões'],
+              ...MODULOS.map(x=>[x.id, x.nome]),
+              ['alertas','Alertas'],['matinal','Matinal']];
 let atual = 'resumo';
 const nav = document.getElementById('nav');
 ABAS.forEach(([id,rot])=>{
@@ -2433,16 +2705,20 @@ ABAS.forEach(([id,rot])=>{
 function render(){
  [...nav.children].forEach(b => {
   b.classList.toggle('on', b.dataset.id===atual);
+  const venc = () => pendencias().filter(x=>x.quando && x.quando <= HOJE).length;
   const bdg = b.dataset.id==='alertas' ? nCriticos()
-            : b.dataset.id==='quentes' ? V.temperaturas.quente : null;
+            : b.dataset.id==='quentes' ? V.temperaturas.quente
+            : b.dataset.id==='agenda' ? (venc()||null) : null;
   b.innerHTML = b.dataset.rot + (bdg!==null ? '<span class="bdg">'+bdg+'</span>' : '');
  });
  const m = document.getElementById('main');
  m.innerHTML = '';
- ({resumo:viewResumo, quentes:viewQuentes, leitura:viewLeitura, resultado:viewResultado,
-   atividades:viewAtividades, pessoas:viewPessoas,
+ const VIEWS = {agenda:viewAgenda, resumo:viewResumo, quentes:viewQuentes, leitura:viewLeitura,
+   resultado:viewResultado, atividades:viewAtividades, pessoas:viewPessoas,
    carteira:m=>viewUnidade(m, EMP.nome, EMP.funis), reunioes:viewReunioes,
-   alertas:viewAlertas, matinal:viewMatinal})[atual](m);
+   alertas:viewAlertas, matinal:viewMatinal};
+ MODULOS.forEach(x=> VIEWS[x.id] = mm => viewModulo(mm, x.id));
+ (VIEWS[atual] || viewResumo)(m);
 }
 
 let ultY = 0;
