@@ -134,8 +134,10 @@ export async function montar(env) {
   /* negócios, todos os status */
   const brutos = await pdTodosV2(env, '/api/v2/deals');
   const negocios = [], resultado = [];
+  const funilPorNegocio = {};
   for (const d of brutos) {
     const et = etapas[d.stage_id] || { nome: '?', funil: '—' };
+    funilPorNegocio[d.id] = et.funil;
     const p = pessoas[d.person_id] || { n: '', t: '' };
     const base = {
       id: d.id, t: d.title, e: et.nome, f: et.funil,
@@ -171,6 +173,9 @@ export async function montar(env) {
     ativ.push({
       i: a.deal_id || 0,
       d: a.deal_title || a.person_name || a.org_name || '',
+      /* A atividade herda a empresa pelo funil do negócio. Atividades soltas
+         ficam sem empresa e não entram em nenhuma visão operacional. */
+      f: funilPorNegocio[a.deal_id] || '',
       q: (md || a.due_date || '').slice(0, 10),
       h: md ? md.slice(11, 16) : (a.due_time || ''),
       t: (a.type_name || '').trim() || 'Sem tipo',
