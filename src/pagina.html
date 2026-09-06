@@ -1003,6 +1003,7 @@ function viewPessoas(m){
       rg.oninput=()=>{o.progresso=+rg.value; o.status = +rg.value>=100?'concluido':'em_andamento';
         mostra(); salvar();};
       l.querySelector('[data-del]').onclick=()=>{
+        paraLixeira('objetivo', o, (o.objetivo||'sem título')+' — '+n);
         dados.okrs = (dados.okrs||[]).filter(z=>z!==o); salvar(); pintaOkr();};
       mostra(); okx.append(l);
      });
@@ -2125,6 +2126,27 @@ const MODULOS = [
   ]},
 ];
 const modPor = id => MODULOS.find(m=>m.id===id);
+
+/* Apagar é definitivo demais para contas e processos. Vai para a lixeira e
+   pode voltar por 30 dias; depois disso some de vez, sozinho. */
+const DIAS_LIXEIRA = 30;
+function paraLixeira(tipo, item, rotulo){
+ dados.lixeira = dados.lixeira || [];
+ dados.lixeira.unshift({id:'l'+Date.now(), tipo, rotulo, quando:HOJE, item});
+ limparLixeira();
+}
+function limparLixeira(){
+ dados.lixeira = (dados.lixeira||[]).filter(x => dif(x.quando, HOJE) <= DIAS_LIXEIRA);
+}
+function restaurar(l){
+ if(l.tipo==='reuniao'){ dados.reunioes = dados.reunioes||[]; dados.reunioes.unshift(l.item); }
+ else if(l.tipo==='objetivo'){ dados.okrs = dados.okrs||[]; dados.okrs.push(l.item); }
+ else { dados.registros = dados.registros||{};
+        dados.registros[l.tipo] = dados.registros[l.tipo]||[];
+        dados.registros[l.tipo].unshift(l.item); }
+ dados.lixeira = dados.lixeira.filter(x=>x.id!==l.id);
+ salvar(); render();
+}
 const regs = mid => (dados.registros && dados.registros[mid] || [])
   .filter(r => EMP.id==='grupo' || r.emp===EMP.id);
 const emAberto = (mod, r) => !(mod.concluido||[]).includes(r[mod.status]);
@@ -2364,7 +2386,7 @@ function viewModulo(m, mid){
       dados.registros[mid].unshift(c); salvar(); render();
      };
      ac.querySelector('[data-del]').onclick = () => {
-      if(!confirm('Apagar este registro?')) return;
+      paraLixeira(mid, r, r[principal.k] || 'sem título');
       dados.registros[mid] = dados.registros[mid].filter(z=>z.id!==r.id); salvar(); render();
      };
      p.append(ac);
@@ -2376,6 +2398,32 @@ function viewModulo(m, mid){
  selAg.onchange = () => { fAg = selAg.value; pinta(); };
  busca.oninput = pinta;
  pinta();
+}
+
+function viewLixeira(m){
+ limparLixeira();
+ const L = dados.lixeira || [];
+ m.append(el('<p class="lede">O que foi apagado nos últimos '+DIAS_LIXEIRA+' dias. '
+  +'Passado esse prazo some sozinho. Vale para registros de gestão, reuniões e objetivos.</p>'));
+ if(!L.length){ m.append(el('<div class="empty">Nada apagado recentemente.</div>')); return; }
+ const nome = t => t==='reuniao' ? 'Reunião' : t==='objetivo' ? 'Objetivo'
+   : (modPor(t)||{}).nome || t;
+ L.forEach(l=>{
+  const restam = DIAS_LIXEIRA - dif(l.quando, HOJE);
+  const r = el('<div class="conv" style="grid-template-columns:1fr auto auto;gap:10px">'
+   +'<div><span class="nm">'+esc(l.rotulo||'sem título')+'</span>'
+   +'<div class="sub">'+esc(nome(l.tipo))+' · apagado em '+dbr(l.quando)+'</div></div>'
+   +'<span class="'+(restam<=5?'warn':'mini')+'">some em '+restam+'d</span>'
+   +'<button class="btn ghost sm">Restaurar</button></div>');
+  r.querySelector('button').onclick = () => restaurar(l);
+  m.append(r);
+ });
+ const ac = el('<div class="actions"><button class="btn ghost sm">Esvaziar agora</button></div>');
+ ac.querySelector('button').onclick = () => {
+  if(!confirm('Esvaziar a lixeira? Isso não tem volta.')) return;
+  dados.lixeira = []; salvar(); render();
+ };
+ m.append(ac);
 }
 
 function pendencias(){
@@ -2646,7 +2694,8 @@ function viewReunioes(m){
     editorReuniao(host, r, salvar);
     const ac = el('<div class="actions"><button class="btn ghost sm">Apagar esta reunião</button></div>');
     ac.querySelector('button').onclick = () => {
-     if(!confirm('Apagar esta reunião e tudo que foi escrito nela?')) return;
+     paraLixeira('reuniao', r, (r.assunto || tipoPor(r.tipo).nome)
+       + (participantes(r)? ' — '+participantes(r) : ''));
      dados.reunioes = dados.reunioes.filter(z=>z.id!==r.id); salvar(); render();
     };
     host.append(ac);
@@ -3060,7 +3109,7 @@ const GRUPOS = [
  {id:'comercial', rot:'Comercial', abas:[['resumo','Resumo'],['quentes','Quentes'],
    ['leitura','Leitura'],['atividades','Atividades'],['carteira','Carteira'],['resultado','Resultado']]},
  {id:'pessoas',   rot:'Pessoas',   abas:[['pessoas','Time'],['reunioes','Reuniões']]},
- {id:'gestao',    rot:'Gestão',    abas:MODULOS.map(x=>[x.id, x.nome])},
+ {id:'gestao',    rot:'Gestão',    abas:[...MODULOS.map(x=>[x.id, x.nome]), ['lixeira','Lixeira']]},
  {id:'matinal',   rot:'Matinal',   abas:[['matinal','Matinal']]},
 ];
 const ABAS = GRUPOS.flatMap(g=>g.abas);
@@ -3104,6 +3153,7 @@ function render(){
    carteira:m=>viewUnidade(m, EMP.nome, EMP.funis), reunioes:viewReunioes,
    alertas:viewAlertas, matinal:viewMatinal};
  MODULOS.forEach(x=> VIEWS[x.id] = mm => viewModulo(mm, x.id));
+ VIEWS.lixeira = viewLixeira;
  (VIEWS[atual] || viewResumo)(m);
 }
 
