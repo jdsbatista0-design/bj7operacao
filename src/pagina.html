@@ -397,7 +397,7 @@ function calcular(){
    ...A.map(x=>x.a),
    ...D.negocios.filter(x=>noEscopo(x)&&criadoNoPer(x)).map(x=>x.d),
    ...D.resultado.filter(x=>noEscopo(x)&&(noPeriodo(x)||criadoNoPer(x))).map(x=>x.d)])]
-  .filter(colaboradorAtivo);
+  .filter(Boolean).filter(n=>n!=='—');
  const pessoas = {};
  NOMES.forEach(n=>{
   const meus = A.filter(x=>x.a===n);
@@ -470,24 +470,14 @@ function calcular(){
    já entra normalizado e não volta a aparecer na tela. */
 const APELIDO = {Jonathas:'Keth'};
 const quem = n => APELIDO[n] || n;
-/* A lista oficial vem do status dos usuários no Pipedrive. A exclusão manual
-   garante a correção imediata enquanto o cache anterior ainda estiver ativo. */
-const INATIVOS_MANUAIS = new Set(['Rafael']);
-const TEM_EQUIPE_ATIVA = Array.isArray(D.equipeAtiva) && D.equipeAtiva.length > 0;
-const EQUIPE_ATIVA = new Set((D.equipeAtiva || []).map(quem));
-const colaboradorAtivo = n => {
- const nome = quem(n);
- return Boolean(nome && nome!=='—' && !INATIVOS_MANUAIS.has(nome)
-   && (!TEM_EQUIPE_ATIVA || EQUIPE_ATIVA.has(nome)));
-};
 let NOMES = [];
 /* Se alguém não teve atividade no período, ainda assim precisa aparecer com zero —
    senão some do painel e o zero, que é a informação, desaparece junto. */
 const EQUIPE = () => [...new Set([
   ...D.ativ.filter(ativNoEscopo).map(x=>x.a),
-  ...D.negocios.filter(noEscopo).map(x=>x.d)])].filter(colaboradorAtivo);
+  ...D.negocios.filter(noEscopo).map(x=>x.d)])].filter(n=>n && n!=='—');
 const FRENTE = {Nicolas:'Izi — mercado e captação', Keth:'Izi — clientes e conversão',
- Gabriel:'BJ7 Painéis'};
+ Gabriel:'BJ7 Painéis', Rafael:'saiu em março de 2026'};
 const frenteDe = n => FRENTE[n] || 'sem frente definida';
 const QUENTES = ['Qualificado','Mídia Kit','Visita','Proposta'];
 
@@ -565,34 +555,232 @@ const el = h => { const t=document.createElement('template'); t.innerHTML=h.trim
  document.getElementById('pill').title = 'Extraído do Pipedrive em '+D.extracao;
 })();
 
-/* ---------------- alertas ---------------- */
-const ALERTAS = [
- {id:'a1', emp:'paineis', n:'critico', t:'Nenhum negócio de Painéis tem valor',
-  c:'Os 444 negócios do funil BJ7 Painéis estão com R$ 0. A meta de 90 mil por mês não é acompanhável pelo CRM enquanto isso durar.',
-  a:'Tornar o campo valor obrigatório e recadastrar primeiro as etapas Proposta, Visita e Mídia Kit — são 15 negócios.',
-  lista:'paineis'},
- {id:'a2', emp:'paineis', n:'critico', t:'As nove etapas de Painéis valem 100% de probabilidade',
-  c:'De Lead até Sem interesse, todas foram configuradas com 100%. Qualquer previsão ponderada desse funil é ficção.',
-  a:'Redefinir: Lead 10, Em contato 20, Qualificado 40, Mídia Kit 55, Visita 70, Proposta 85, Nutrição 0, Sem interesse 0.'},
- {id:'a3', emp:'paineis', n:'alto', t:'92 negócios descartados continuam abertos',
-  c:'Estão na etapa Sem interesse, mas ninguém marcou como perdido. Seguem somando no funil para sempre.',
-  a:'Marcar os 92 como perdidos com motivo. É a faxina mais rápida disponível.',
-  lista:'semInteresse'},
- {id:'a4', emp:'izi', n:'alto', t:'Nicolas está trabalhando no funil errado',
-  c:'Ele responde por captação de áreas, mas Angariação tem 16 negócios enquanto o SDR tem 866. O resultado dele não aparece onde deveria.',
-  a:'Decidir qual funil é o dele e migrar a carteira antes de definir qualquer meta.'},
- {id:'a5', emp:'paineis', n:'alto', t:'173 negócios de Painéis parados há mais de 30 dias',
-  c:'39% do funil do Gabriel não recebe movimento há mais de um mês.',
-  a:'Regra fixa: 30 dias sem atividade, o negócio volta para Nutrição ou vira perdido.',
-  lista:'parados'},
- {id:'a6', emp:'izi', n:'medio', t:'Keth ainda opera com o login do dono',
-  c:'Sem usuário próprio não há trilha de auditoria, e ela enxerga a base inteira do grupo. As 3 atividades dela no mês não estão ligadas a negócio nenhum.',
-  a:'Criar usuário com permissão de comercial e ligar as atividades dela aos negócios.'},
-];
+/* ---------------- alertas ----------------
+   Deixaram de ser texto fixo: cada um é uma regra que roda sobre os dados do
+   período e da empresa. Some sozinho quando o problema acaba, e o limite de
+   cada regra é ajustável em Configurar.                                      */
+
+const CFG_PADRAO = {jornadaIni:'08:00', jornadaFim:'18:00', almocoMin:60,
+  paradoDias:30, semContatoDias:14, cadenciaMax:1};
+const cfg = () => ({...CFG_PADRAO, ...(dados.cfgAlertas||{})});
+const hhmm = h => { const [a,b]=(h||'').split(':').map(Number);
+  return (a||a===0) ? a*60+(b||0) : null; };
+const relogio = min => String(Math.floor(min/60)).padStart(2,'0')+':'+String(min%60).padStart(2,'0');
+
+/* jornada: uma linha por pessoa e dia, com primeira e última atividade e o
+   maior intervalo entre uma atividade e a seguinte */
+function jornada(){
+ const c = cfg(), ini = hhmm(c.jornadaIni), fim = hhmm(c.jornadaFim);
+ const porDia = {};
+ V.A.filter(x=>x.h).forEach(x=>{
+  const k = x.a+'|'+x.q;
+  (porDia[k] = porDia[k] || {quem:x.a, dia:x.q, min:[], itens:[]});
+  porDia[k].min.push(hhmm(x.h)); porDia[k].itens.push(x);
+ });
+ return Object.values(porDia).map(d=>{
+  d.min.sort((a,b)=>a-b);
+  d.primeira = d.min[0]; d.ultima = d.min[d.min.length-1];
+  let maior = 0, onde = null;
+  for(let i=1;i<d.min.length;i++){ const g = d.min[i]-d.min[i-1];
+    if(g>maior){ maior=g; onde=[d.min[i-1], d.min[i]]; } }
+  d.maiorPausa = d.min.length>1 ? maior : null;
+  d.janelaPausa = onde;
+  d.cedo = d.primeira < ini ? d.itens.filter(x=>hhmm(x.h) < ini) : [];
+  d.tarde = d.ultima > fim ? d.itens.filter(x=>hhmm(x.h) > fim) : [];
+  d.semAlmoco = d.min.length>=4 && d.primeira <= 12*60 && d.ultima >= 14*60
+    && (d.maiorPausa||0) < c.almocoMin;
+  return d;
+ }).sort((a,b)=> a.dia < b.dia ? 1 : -1);
+}
+
+function regrasAlerta(){
+ const c = cfg(), J = jornada(), N = V.negocios;
+ const fora = J.filter(d=>d.cedo.length || d.tarde.length);
+ const semInt = J.filter(d=>d.semAlmoco);
+ const semDono = N.filter(x=>!x.cl);
+ const paradosMuito = N.filter(x=>x.p > c.paradoDias && !MORTAS.includes(x.e));
+ const descartadosAbertos = N.filter(x=>['Sem interesse','Arquivado'].includes(x.e));
+ const soltas = V.A.filter(x=>!x.i);
+ const semNota = N.filter(x=>!x.s && x.r0>0);
+ const C = cadenciaDe(V.A);
+ const umToque = C.filter(x=>x.n<=c.cadenciaMax);
+
+ return [
+  {id:'jornada_fora', n:'medio',
+   t: (()=>{ const q = new Set(fora.map(d=>d.quem)).size;
+      return q+(q===1?' pessoa':' pessoas')+' registrando fora do horário'; })(),
+   quando: fora.length,
+   c:'Atividade lançada antes das '+c.jornadaIni+' ou depois das '+c.jornadaFim+'. '
+     +'Pode ser dedicação, pode ser sobrecarga, e pode ser CRM sendo preenchido de madrugada em vez '
+     +'de na hora da conversa. Os três casos merecem conversa, por motivos diferentes.',
+   a:'Abra por pessoa e veja o padrão. Um dia solto não diz nada; toda semana no mesmo horário diz.',
+   porPessoa: () => {
+    const g = {};
+    fora.forEach(d=>{ const o = g[d.quem] = g[d.quem] || {quem:d.quem, dias:0, ativ:0,
+      maisCedo:99999, maisTarde:0, det:[]};
+     o.dias++; o.ativ += d.cedo.length + d.tarde.length;
+     o.maisCedo = Math.min(o.maisCedo, d.primeira); o.maisTarde = Math.max(o.maisTarde, d.ultima);
+     o.det.push(d); });
+    return Object.values(g).sort((a,b)=>b.ativ-a.ativ);
+   }},
+
+  {id:'jornada_almoco', n:'medio',
+   t: (()=>{ const q = new Set(semInt.map(d=>d.quem)).size;
+      return q+(q===1?' pessoa ficou':' pessoas ficaram')+' sem intervalo de '+c.almocoMin+' min'; })(),
+   quando: semInt.length,
+   c:'Dias em que a pessoa registrou atividade da manhã à tarde sem nenhuma pausa de pelo menos '
+     +c.almocoMin+' minutos entre uma e outra. É indício, não prova: só mostra que não houve '
+     +'registro no intervalo, e a pessoa pode ter almoçado sem lançar nada.',
+   a:'Confirme com a pessoa antes de tratar como jornada sem descanso.',
+   porPessoa: () => {
+    const g = {};
+    semInt.forEach(d=>{ const o = g[d.quem] = g[d.quem] || {quem:d.quem, dias:0, ativ:0,
+      maisCedo:99999, maisTarde:0, det:[]};
+     o.dias++; o.ativ += d.itens.length;
+     o.maisCedo = Math.min(o.maisCedo, d.primeira); o.maisTarde = Math.max(o.maisTarde, d.ultima);
+     o.det.push(d); });
+    return Object.values(g).sort((a,b)=>b.dias-a.dias);
+   }},
+
+  {id:'sem_dono', n:'critico', t:nf(semDono.length)+' negócios sem pessoa vinculada',
+   quando: semDono.length,
+   c:'Sem pessoa não existe telefone. Não dá para ligar, não dá para cobrar, e o negócio ocupa '
+     +'lugar no funil sem poder avançar.',
+   a:'Vincular a pessoa no Pipedrive ou marcar como perdido.',
+   lista: () => semDono},
+
+  {id:'descartado_aberto', n:'alto', t:nf(descartadosAbertos.length)+' descartados ainda abertos',
+   quando: descartadosAbertos.length,
+   c:'Estão em etapa de descarte mas ninguém marcou como perdido. Seguem somando no funil para sempre '
+     +'e sujam toda taxa de conversão.',
+   a:'Marcar como perdido com motivo. É a faxina mais rápida que existe.',
+   lista: () => descartadosAbertos},
+
+  {id:'parados', n:'alto', t:nf(paradosMuito.length)+' negócios vivos parados há mais de '+c.paradoDias+' dias',
+   quando: paradosMuito.length,
+   c:'Estão em etapa que ainda vale a pena, mas ninguém toca há mais de '+c.paradoDias+' dias.',
+   a:'Regra fixa: passou do prazo, volta para nutrição ou vira perdido.',
+   lista: () => paradosMuito},
+
+  {id:'um_toque', n:'alto', t:nf(umToque.length)+' negócios com um único contato',
+   quando: umToque.length,
+   c:'Receberam um contato no período e nenhuma sequência. É onde o dinheiro vaza mais barato: '
+     +'o lead já foi pago, só faltou voltar.',
+   a:'Definir cadência mínima e cobrar na matinal.',
+   lista: () => umToque.map(x=>({t:x.t, e:x.e||'sem etapa', p:x.desde, r:x.n, cl:x.cl}))},
+
+  {id:'soltas', n:'medio', t:nf(soltas.length)+' atividades sem negócio ligado',
+   quando: soltas.length,
+   c:'Trabalho registrado que não aparece em funil nenhum: não conta em conversão, não vira '
+     +'histórico do cliente e some da gestão.',
+   a:'Ligar a atividade ao negócio na hora de registrar.',
+   lista: () => soltas.map(x=>({t:x.d||'(sem título)', e:x.t, p:0, r:1, cl:x.a}))},
+
+  {id:'sem_nota', n:'medio', t:nf(semNota.length)+' negócios contatados sem uma linha escrita',
+   quando: semNota.length,
+   c:'Alguém falou com o cliente e não registrou o que foi dito. Quem pegar depois começa do zero.',
+   a:'Anotação obrigatória em ligação e reunião.',
+   lista: () => semNota},
+ ].filter(x=>x.quando > 0);
+}
+
 const TAG = {critico:['t-clay','Crítico'], alto:['t-ochre','Alto'], medio:['t-gray','Médio']};
 const oculto = a => !!(dados.ocultos||{})[a.id];
-const visiveis = () => ALERTAS.filter(a=>!oculto(a) && (EMP.id==='grupo' || a.emp===EMP.id));
+const visiveis = () => regrasAlerta().filter(a=>!oculto(a));
 const nCriticos = () => visiveis().filter(a=>a.n!=='medio').length;
+
+function viewAlertas(m){
+ const todas = regrasAlerta();
+ const vis = todas.filter(a=>!oculto(a));
+ const esc_ = todas.filter(oculto);
+ m.append(el('<p class="lede">Cada alerta é uma regra que roda sobre os dados de <b>'+esc(EMP.nome)
+  +'</b> no período. Some sozinho quando o problema acaba. Se um não faz sentido para a sua operação, '
+  +'oculte — e ajuste os limites em Configurar, no fim da página.</p>'));
+
+ if(!vis.length) m.append(el('<div class="empty">Nenhum alerta aberto para '+esc(EMP.nome)+' agora.</div>'));
+ vis.forEach(a=>{
+  linha(m,
+   '<div class="hd"><span class="nm">'+esc(a.t)+'</span><span class="tag '+TAG[a.n][0]
+    +'" style="margin:0">'+TAG[a.n][1]+'</span></div>',
+   host => {
+    host.append(el('<p class="lede" style="margin-top:14px">'+esc(a.c)+'</p>'));
+    host.append(el('<p style="font-size:14.5px;margin:0"><span class="mini">O que fazer</span><br>'
+      +esc(a.a)+'</p>'));
+    if(a.porPessoa){
+     const bx = el('<div style="margin-top:14px"></div>');
+     a.porPessoa().forEach(x=>{
+      linha(bx, '<div class="hd"><span class="nm">'+esc(x.quem)+'</span>'
+       +'<span class="stat num">'+x.dias+' dias · '+x.ativ+' atividades</span></div>'
+       +'<div class="sub">mais cedo às '+relogio(x.maisCedo)+', mais tarde às '
+       +relogio(x.maisTarde)+'</div>',
+       h2 => {
+        const dx = el('<div></div>');
+        x.det.sort((p,q)=> p.dia < q.dia ? 1 : -1).forEach(d=>{
+         const fora_ = [...d.cedo, ...d.tarde];
+         linha(dx, '<div class="hd"><span class="nm">'+dbr(d.dia)+'</span>'
+          +'<span class="stat num">'+relogio(d.primeira)+' às '+relogio(d.ultima)+'</span></div>'
+          +'<div class="sub">'+d.itens.length+' atividades'
+          +(fora_.length? ' · '+fora_.length+' fora do horário' : '')
+          +(d.maiorPausa!==null? ' · maior pausa de '+d.maiorPausa+' min' : '')+'</div>',
+          h3 => tabela(h3, (fora_.length? fora_ : d.itens).map(z=>({...z, cl:(fichaDe(z.i)||{}).cl||''})), [
+           {k:'h', h:'Hora'},
+           {k:'t', h:'Canal', f:z=>'<span class="tag '+(REAL.includes(z.t)?'t-teal':'t-gray')+'">'
+              +esc(z.t)+'</span>'},
+           {k:'d', h:'Negócio', f:z=> z.i? '<button type="button" class="lnk" data-id="'+z.i
+              +'" data-t="'+esc(z.d)+'">'+esc(z.d)+'</button>'
+              : '<span class="mini warn">sem negócio</span>'},
+           {k:'cl', h:'Cliente', f:z=> z.cl? esc(z.cl) : '—'},
+           {k:'n', h:'Anotação', f:z=> z.n ? '<span class="sit">'+esc(z.n)+'</span>' : '—'},
+          ], '', 'atividades'));
+        });
+        h2.append(dx);
+       });
+     });
+     host.append(bx);
+    } else {
+     const itens = a.lista();
+     if(itens.length) tabelaUnidade(host, itens);
+    }
+    const ac = el('<div class="actions" style="margin-top:16px;padding-top:14px">'
+      +'<button class="btn ghost sm">Ocultar este alerta</button></div>');
+    ac.querySelector('button').onclick = () => {
+     dados.ocultos = dados.ocultos || {}; dados.ocultos[a.id] = HOJE; salvar(); render();
+    };
+    host.append(ac);
+   });
+ });
+
+ if(esc_.length){
+  m.append(el('<h2>Ocultos</h2>'));
+  esc_.forEach(a=>{
+   const r = el('<div class="conv" style="grid-template-columns:1fr auto"><div>'
+     +'<span class="nm">'+esc(a.t)+'</span><div class="sub">'+TAG[a.n][1]
+     +', ocultado em '+dbr(dados.ocultos[a.id])+'</div></div>'
+     +'<button class="btn ghost sm">Mostrar</button></div>');
+   r.querySelector('button').onclick = () => { delete dados.ocultos[a.id]; salvar(); render(); };
+   m.append(r);
+  });
+ }
+
+ m.append(el('<h2>Configurar</h2>'));
+ m.append(el('<p class="lede">Os limites de cada regra. Mudou aqui, os alertas recalculam.</p>'));
+ const C = cfg();
+ const CAMPOS_CFG = [
+  ['jornadaIni','Início da jornada','time'],
+  ['jornadaFim','Fim da jornada','time'],
+  ['almocoMin','Intervalo mínimo esperado, em minutos','number'],
+  ['paradoDias','Dias parado até virar alerta','number'],
+  ['cadenciaMax','Até quantos contatos conta como abandonado','number'],
+ ];
+ CAMPOS_CFG.forEach(([k,rot,tipo])=>{
+  m.append(el('<label for="cfg-'+k+'">'+rot+'</label>'));
+  const i = el('<input type="'+tipo+'" class="search" id="cfg-'+k+'" style="max-width:200px">');
+  i.value = C[k];
+  i.onchange = () => { dados.cfgAlertas = {...cfg(), [k]: tipo==='number'? +i.value : i.value};
+    salvar(); render(); };
+  m.append(i);
+ });
+}
 
 /* ---------------- tabelas ---------------- */
 const PAINEIS = () => V.negocios.filter(x=>x.f==='Painéis');
@@ -861,20 +1049,61 @@ function viewPessoas(m){
 
 function detalhePessoa(host, n){
  const p = V.pessoas[n];
- if(!p.negocios.length){
-  host.append(el('<div class="empty">As '+p.total+' atividades existem, mas nenhuma está ligada a um negócio. '
-   +'Por isso o trabalho não aparece em funil algum.</div>'));
+ const minhas = V.A.filter(x=>x.a===n);
+ if(!minhas.length){
+  host.append(el('<div class="empty">Nenhuma atividade registrada no período.</div>'));
   return;
  }
- tabela(host, p.negocios, [
-  {k:'t', h:'Negócio', f:x=>'<button type="button" class="lnk" data-id="'+x.id+'" data-t="'+esc(x.t)+'">'+esc(x.t)+'</button>'},
-  {k:'s', h:'Situação', f:x=> x.s ? '<span class="sit">'+esc(x.s)+'</span>'
-    : '<span class="mini warn">nada escrito</span>'},
-  {k:'tipos', h:'Canais'},
-  {k:'n', h:'Atividades', r:1},
-  {k:'r', h:'Contatos', r:1, f:x=> x.r ? String(x.r) : '<span class="warn">0</span>'},
-  {k:'ult', h:'Último', r:1, f:x=> x.ult.slice(8,10)+'/'+x.ult.slice(5,7)},
- ]);
+ const semNeg = minhas.filter(x=>!x.i).length;
+ const repet = minhas.filter(x=>x.i).length - p.tocados;
+
+ host.append(el('<p class="mini" style="margin:6px 0 10px"><b>'+p.tocados+'</b> negócios em <b>'
+  +minhas.length+'</b> atividades'
+  + (repet>0 ? ' — '+repet+' '+(repet===1?'é retorno no mesmo negócio':'são retornos nos mesmos negócios') : '')
+  + (semNeg ? (repet>0?' e ':' — ')+semNeg+' sem negócio ligado' : '')
+  + '. Troque abaixo para ver uma a uma.</p>'));
+
+ let modo = 'neg';
+ const seg = el('<div class="seg" style="margin-bottom:10px">'
+  +'<button class="on" data-m="neg">Por negócio ('+p.tocados+')</button>'
+  +'<button data-m="ativ">Por atividade ('+minhas.length+')</button></div>');
+ const alvo = el('<div></div>');
+ host.append(seg, alvo);
+
+ const pinta = () => {
+  seg.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.m===modo));
+  alvo.innerHTML='';
+  if(modo==='ativ'){
+   tabela(alvo, minhas.map(x=>({...x, cl:(fichaDe(x.i)||{}).cl||''})), [
+    {k:'q', h:'Quando', f:x=> x.q.slice(8,10)+'/'+x.q.slice(5,7)
+      +(x.h? '<div class="mini">'+x.h+'</div>' : '<div class="mini warn">sem hora</div>')},
+    {k:'t', h:'Canal', f:x=>'<span class="tag '+(REAL.includes(x.t)?'t-teal':'t-gray')+'">'+esc(x.t)+'</span>'},
+    {k:'d', h:'Negócio', f:x=> !x.i ? '<span class="mini warn">sem negócio ligado</span>'
+      : (fichaDe(x.i) ? '<button type="button" class="lnk" data-id="'+x.i+'" data-t="'+esc(x.d)+'">'
+          +esc(x.d)+'</button>' : esc(x.d)+'<div class="mini warn">negócio removido</div>')},
+    {k:'cl', h:'Cliente', f:x=> x.cl ? esc(x.cl) : '<span class="mini warn">sem pessoa</span>'},
+    {k:'n', h:'O que foi conversado', f:x=> x.n ? '<span class="sit">'+esc(x.n)+'</span>'
+      : '<span class="mini warn">nada escrito</span>'},
+   ], '', 'atividades');
+   return;
+  }
+  if(!p.negocios.length){
+   alvo.append(el('<div class="empty">As '+p.total+' atividades existem, mas nenhuma está ligada a um '
+    +'negócio. Por isso o trabalho não aparece em funil algum.</div>'));
+   return;
+  }
+  tabela(alvo, p.negocios, [
+   {k:'t', h:'Negócio', f:x=>'<button type="button" class="lnk" data-id="'+x.id+'" data-t="'+esc(x.t)+'">'+esc(x.t)+'</button>'},
+   {k:'s', h:'Situação', f:x=> x.s ? '<span class="sit">'+esc(x.s)+'</span>'
+     : '<span class="mini warn">nada escrito</span>'},
+   {k:'tipos', h:'Canais'},
+   {k:'n', h:'Atividades', r:1},
+   {k:'r', h:'Contatos', r:1, f:x=> x.r ? String(x.r) : '<span class="warn">0</span>'},
+   {k:'ult', h:'Último', r:1, f:x=> x.ult.slice(8,10)+'/'+x.ult.slice(5,7)},
+  ], '', 'negócios');
+ };
+ seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{ modo=b.dataset.m; pinta(); });
+ pinta();
 }
 
 const ORDEM_ETAPA = {'Lead':1,'Lead novo':1,'Em contato':2,'Realizando contato':2,'Prospecção':2,
@@ -1141,41 +1370,6 @@ function tabelaUnidade(host, itens){
  ]);
 }
 
-function viewAlertas(m){
- const vis = visiveis(), esc_ = ALERTAS.filter(oculto);
- m.append(el('<p class="lede">Clique para ver o que significa, a ação recomendada e a lista dos negócios '
-  +'afetados. Se um alerta não se aplica ao seu caso, dá para ocultar — ele fica guardado no fim da página.</p>'));
- if(!vis.length) m.append(el('<div class="empty">Nenhum alerta aberto para '+esc(EMP.nome)+'.</div>'));
- vis.forEach(a=>{
-  linha(m,
-   '<div class="hd"><span class="nm">'+esc(a.t)+'</span><span class="tag '+TAG[a.n][0]
-    +'" style="margin:0">'+TAG[a.n][1]+'</span></div>',
-   host => {
-    host.append(el('<p class="lede" style="margin-top:14px">'+esc(a.c)+'</p>'));
-    host.append(el('<p style="font-size:14.5px;margin:0"><span class="mini">Ação recomendada</span><br>'+esc(a.a)+'</p>'));
-    if(a.lista) tabelaPaineis(host, listaDe(a.lista));
-    const ac = el('<div class="actions" style="margin-top:16px;padding-top:14px">'
-      +'<button class="btn ghost sm">Ocultar este alerta</button></div>');
-    ac.querySelector('button').onclick = () => {
-     dados.ocultos = dados.ocultos || {};
-     dados.ocultos[a.id] = D.hoje; salvar(); render();
-    };
-    host.append(ac);
-   });
- });
- if(esc_.length){
-  m.append(el('<h2>Ocultos</h2>'));
-  m.append(el('<p class="lede">Continuam valendo no Pipedrive — só não aparecem na lista nem na apresentação.</p>'));
-  esc_.forEach(a=>{
-   const r = el('<div class="conv" style="grid-template-columns:1fr auto"><div>'
-     +'<span class="nm">'+esc(a.t)+'</span><div class="sub">'+TAG[a.n][1]
-     +', ocultado em '+(dados.ocultos[a.id]||'').slice(8,10)+'/'+(dados.ocultos[a.id]||'').slice(5,7)+'</div></div>'
-     +'<button class="btn ghost sm">Mostrar</button></div>');
-   r.querySelector('button').onclick = () => { delete dados.ocultos[a.id]; salvar(); render(); };
-   m.append(r);
-  });
- }
-}
 
 
 /* ---------------- gráfico do mês ---------------- */
@@ -1547,7 +1741,7 @@ function viewResultado(m){
  /* --- por responsável no período --- */
  if(A.g.length || A.pc.length){
   m.append(el('<h2>Quem fechou</h2>'));
-  const donos = [...new Set([...A.g,...A.pc].map(x=>x.d))].filter(colaboradorAtivo);
+  const donos = [...new Set([...A.g,...A.pc].map(x=>x.d))];
   const rows = donos.map(d=>({d,
     g:A.g.filter(x=>x.d===d).length, p:A.pc.filter(x=>x.d===d).length,
     c:A.g.filter(x=>x.d===d).map(x=>x.c)}));
