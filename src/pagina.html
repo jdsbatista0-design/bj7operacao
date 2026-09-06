@@ -49,11 +49,15 @@ h1{font-size:19px;line-height:1.2;margin:0;letter-spacing:-.02em;font-weight:650
 .dot.old{background:var(--ochre)}
 
 /* faixas roláveis */
-.empresas{display:flex;gap:8px;align-items:center;padding:0 0 10px;overflow-x:auto;
+.empresas{display:flex;gap:10px;align-items:center;padding:2px 0 12px;overflow-x:auto;
  scrollbar-width:none}
 .empresas::-webkit-scrollbar{display:none}
-.empresas .seg button{height:38px;font-size:14px;font-weight:500;padding:0 16px}
-.empresas .seg button.on{background:var(--teal);color:#fff}
+.empresas .seg{border:0;background:none;gap:8px;padding:0}
+.empresas .seg button{height:44px;font-size:16px;font-weight:600;padding:0 18px;border-radius:10px;
+ border:1px solid var(--rule2);background:var(--card);color:var(--soft);letter-spacing:-.01em}
+.empresas .seg button.on{background:var(--teal);border-color:var(--teal);color:#fff}
+.empresas .res{font-size:12.5px;color:var(--faint);white-space:nowrap}
+@media(max-width:520px){ .empresas .res{display:none} }
 .periodo,nav{display:flex;gap:6px;align-items:center;overflow-x:auto;
  scrollbar-width:none;-webkit-overflow-scrolling:touch}
 .periodo::-webkit-scrollbar,nav::-webkit-scrollbar{display:none}
@@ -378,6 +382,42 @@ textarea{width:100%;font:inherit;font-size:16px;padding:11px 12px;border:1px sol
 
 <script>
 const D = __DADOS__;
+/* Pontos por esforço. Ligação vale mais que WhatsApp, visita vale mais que as
+   duas, e venda vale mais que tudo — é o que faz a soma virar prioridade. */
+const PONTOS_PADRAO = {'Ligação':2, 'WhatsApp':1, 'Visita':5, 'Reunião':5, 'Proposta':3,
+  'E-mail':1, 'Follow-up':1, 'Sem tipo':0};
+const PONTOS_EXTRA = {venda:125, tarefaNoPrazo:5};
+const pontosCfg = () => ({...PONTOS_PADRAO, ...((dados.pontos||{}).canais||{})});
+const extraCfg  = () => ({...PONTOS_EXTRA, ...((dados.pontos||{}).extra||{})});
+const metaPontos = n => ((dados.metasPontos||{})[n] || {semana:0, mes:0});
+
+function pontosDe(n, ini, fim){
+ const pc = pontosCfg(), ex = extraCfg();
+ const ativ = D.ativ.filter(x=>x.a===n && x.q>=ini && x.q<=fim && ativNoEscopo(x));
+ const porCanal = {};
+ let total = 0;
+ ativ.forEach(x=>{ const v = pc[x.t] ?? 0;
+  porCanal[x.t] = porCanal[x.t] || {n:0, p:0};
+  porCanal[x.t].n++; porCanal[x.t].p += v; total += v; });
+ const vendas = D.resultado.filter(x=>noEscopo(x) && x.d===n && x.r==='ganho'
+   && x.q>=ini && x.q<=fim).length;
+ if(vendas){ porCanal['Venda'] = {n:vendas, p:vendas*ex.venda}; total += vendas*ex.venda; }
+ const tarefas = (dados.registros && dados.registros.tarefas || [])
+   .filter(r => (EMP.id==='grupo'||r.emp===EMP.id) && r.responsavel===n
+     && r.status==='concluida' && r.prazo && r.prazo>=ini && r.prazo<=fim).length;
+ if(tarefas){ porCanal['Tarefa no prazo'] = {n:tarefas, p:tarefas*ex.tarefaNoPrazo};
+   total += tarefas*ex.tarefaNoPrazo; }
+ return {total, porCanal, vendas, ativ:ativ.length};
+}
+const semanaAtual = () => {
+ const d = new Date(HOJE+'T12:00:00');
+ const seg = new Date(d); seg.setDate(d.getDate() - ((d.getDay()+6)%7));
+ const dom = new Date(seg); dom.setDate(seg.getDate()+6);
+ return [seg.toISOString().slice(0,10), dom.toISOString().slice(0,10)];
+};
+const mesAtual = () => [HOJE.slice(0,8)+'01',
+  new Date(+HOJE.slice(0,4), +HOJE.slice(5,7), 0).toISOString().slice(0,10)];
+
 const REAL = ['Ligação','Visita','Reunião','WhatsApp'];
 const MORTAS = D.mortas;
 /* Se o conjunto de dados vier de uma versão anterior do Worker, campos podem
@@ -2888,40 +2928,97 @@ function fechamentoDia(dia){
  });
 }
 
-function viewMatinal(m){
- dados.metas = dados.metas || {};
- m.append(el('<p class="lede">O que abrir na reunião de amanhã, na ordem. Tudo que você escrever fica '
-  +'salvo e entra na apresentação.</p>'));
+function blocoPontos(m, ini, fim, rotulo, campoMeta){
+ const linhas = NOMES.filter(ativo).map(n=>({n, ...pontosDe(n, ini, fim),
+   meta: metaPontos(n)[campoMeta] || 0}));
+ const max = Math.max(1, ...linhas.map(x=>Math.max(x.total, x.meta)));
+ const bx = el('<div></div>');
+ linhas.forEach(x=>{
+  const pct = x.meta ? Math.min(x.total/x.meta*100, 100) : 0;
+  const falta = Math.max(x.meta - x.total, 0);
+  linha(bx,
+   '<div class="hd"><span class="nm">'+esc(x.n)+'</span>'
+    +'<span class="stat num'+(x.meta && x.total<x.meta ? ' warn':'')+'">'+nf(x.total)+' pts'
+    +(x.meta? ' de '+nf(x.meta) : '')+'</span></div>'
+   +'<div class="sub">'+(x.meta
+      ? (falta? 'faltam '+nf(falta)+' pontos' : 'meta batida')
+      : 'sem meta definida para '+rotulo)
+    +' · '+x.ativ+' atividades'+(x.vendas? ' · '+x.vendas+' venda'+(x.vendas>1?'s':'') : '')+'</div>'
+   +'<div class="bar"><i class="'+(x.meta && x.total>=x.meta ? '' : 'dim')
+    +'" style="width:'+Math.max(x.meta? pct : x.total/max*100, 1.5)+'%"></i></div>',
+   host => {
+    const itens = Object.entries(x.porCanal).sort((a,b)=>b[1].p-a[1].p);
+    if(!itens.length){ host.append(el('<div class="empty">Nada registrado no período.</div>')); return; }
+    const cv = el('<div style="margin-top:10px"></div>');
+    cv.append(el('<div class="conv conv5"><span class="mini">De onde vêm os pontos</span>'
+     +'<span class="h">Qtd</span><span class="h">Vale</span><span class="h">Pontos</span>'
+     +'<span class="h">%</span></div>'));
+    const pc = {...pontosCfg(), 'Venda':extraCfg().venda, 'Tarefa no prazo':extraCfg().tarefaNoPrazo};
+    itens.forEach(([k,v])=>{
+     cv.append(el('<div class="conv conv5"><span class="nm">'+esc(k)+'</span>'
+      +'<span class="v">'+v.n+'</span><span class="v">'+(pc[k]??0)+'</span>'
+      +'<span class="v">'+nf(v.p)+'</span>'
+      +'<span class="v">'+(x.total? Math.round(v.p/x.total*100):0)+'%</span></div>'));
+    });
+    host.append(cv);
+   });
+ });
+ m.append(bx);
+ return linhas;
+}
 
- /* --- 1. fechamento de ontem, calculado --- */
+function campoLivre(m, k, rot, ph){
+ m.append(el('<label for="f-'+k+'">'+rot+(ph?'<i>'+esc(ph)+'</i>':'')+'</label>'));
+ const ta = el('<textarea id="f-'+k+'" rows="3"></textarea>');
+ ta.value = dados[k]||''; ta.oninput = () => { dados[k]=ta.value; salvar(); };
+ m.append(ta);
+}
+
+function viewMatinal(m){
+ const [si, sf] = semanaAtual(), [mi, mf] = mesAtual();
+ m.append(el('<p class="lede">A reunião segue sempre a mesma ordem: dinâmica, rotina, resultados, '
+  +'aprendizados e compromissos. O que você escrever fica salvo e entra na apresentação.</p>'));
+
+ m.append(el('<h2>1 · Dinâmica</h2>'));
+ m.append(el('<p class="lede">Começa pelo humano. Qual foi a de hoje e o que apareceu nela.</p>'));
+ campoLivre(m,'dinamica','Qual foi a dinâmica','uma frase basta');
+ campoLivre(m,'dinamicaNotas','O que apareceu','');
+
+ m.append(el('<h2>2 · Rotina</h2>'));
+ m.append(el('<p class="lede">Fechamento do dia anterior, calculado do Pipedrive. Ninguém digita.</p>'));
  const dias = [...new Set(D.ativ.filter(ativNoEscopo).map(x=>x.q))].sort().reverse();
  let diaSel = dias[0];
- m.append(el('<h2>1 · Fechamento do dia</h2>'));
- m.append(el('<p class="lede">Calculado do Pipedrive. Ninguém digita.</p>'));
  const selD = el('<select class="selmes" aria-label="Dia">'
-  + dias.slice(0,60).map(q=>'<option value="'+q+'">'+q.slice(8,10)+'/'+q.slice(5,7)+'/'+q.slice(0,4)
-    +'</option>').join('') + '</select>');
+  + dias.slice(0,60).map(q=>'<option value="'+q+'">'+dbr(q)+'</option>').join('') + '</select>');
  const fbox = el('<div style="margin-top:10px"></div>');
  m.append(selD, fbox);
  const pintaF = () => {
   fbox.innerHTML='';
-  fbox.append(el('<div class="conv"><span class="mini">Pessoa</span><span class="h">Trab.</span>'
-   +'<span class="h">Cont.</span><span class="h">Ganhos</span></div>'));
+  fbox.append(el('<div class="conv"><span class="mini">Pessoa</span><span class="h">Negócios</span>'
+   +'<span class="h">Contatos</span><span class="h">Pontos</span></div>'));
   fechamentoDia(diaSel).forEach(f=>{
+   const p = pontosDe(f.n, diaSel, diaSel);
    fbox.append(el('<div class="conv"><span class="nm">'+f.n+'</span>'
     +'<span class="v'+(f.trab?'':' warn')+'">'+f.trab+'</span>'
     +'<span class="v'+(f.cont?'':' warn')+'">'+f.cont+'</span>'
-    +'<span class="v">'+f.ganhos+'</span></div>'));
+    +'<span class="v">'+nf(p.total)+'</span></div>'));
   });
  };
  selD.onchange = () => { diaSel = selD.value; pintaF(); };
- pintaF();
+ if(dias.length) pintaF(); else fbox.append(el('<div class="empty">Sem atividade registrada.</div>'));
 
- /* --- 2. quentes para perguntar pelo nome --- */
+ m.append(el('<h2>3 · Resultados</h2>'));
+ m.append(el('<p class="lede">Realizado contra planejado, em pontos. Abra a pessoa para ver de onde '
+  +'os pontos vieram.</p>'));
+ m.append(el('<h4 class="sec">Semana, de '+dbr(si)+' a '+dbr(sf)+'</h4>'));
+ blocoPontos(m, si, sf, 'a semana', 'semana');
+ m.append(el('<h4 class="sec">Mês de '+(MES_LONGO[mi.slice(5,7)]||'')+'</h4>'));
+ blocoPontos(m, mi, mf, 'o mês', 'mes');
+
  const q = V.negocios.filter(x=>x.temp==='quente');
- m.append(el('<h2>2 · Perguntar pelo nome</h2>'));
+ m.append(el('<h4 class="sec">Perguntar pelo nome</h4>'));
  if(q.length){
-  m.append(el('<p class="lede">'+q.length+' negócios quentes. Um por um, na rodada individual.</p>'));
+  m.append(el('<p class="mini">'+q.length+' negócios quentes. Um por um, na rodada individual.</p>'));
   tabela(m, q, [
    {k:'t', h:'Negócio', f:x=>'<button type="button" class="lnk" data-id="'+x.id+'" data-t="'+esc(x.t)+'">'
      +esc(x.t)+'</button>'},
@@ -2931,38 +3028,69 @@ function viewMatinal(m){
    {k:'s', h:'Situação', f:x=> x.s ? '<span class="sit">'+esc(x.s)+'</span>'
      : '<span class="mini warn">nada escrito</span>'},
   ], '', 'quentes');
- } else m.append(el('<div class="empty">Nenhum negócio quente hoje. A rodada individual vira cobrança de '
-   +'cadência, não de fechamento.</div>'));
+ } else m.append(el('<div class="empty">Nenhum negócio quente. A rodada vira cobrança de cadência.</div>'));
 
- /* --- 3. metas do mês --- */
- m.append(el('<h2>3 · Metas do mês</h2>'));
- m.append(el('<p class="lede">Quantos negócios distintos cada um precisa trabalhar até o fim do mês.</p>'));
+ m.append(el('<h2>4 · Aprendizados</h2>'));
+ m.append(el('<p class="lede">O que a semana ensinou. Sem isso a reunião vira só cobrança.</p>'));
+ campoLivre(m,'aprendizados','O que aprendemos','de venda perdida, de cliente, de processo');
+ campoLivre(m,'ajustes','O que vamos mudar por causa disso','');
+
+ m.append(el('<h2>5 · Compromissos</h2>'));
+ const ab = compromissosAbertos();
+ if(ab.length){
+  m.append(el('<p class="lede">Vindos das reuniões, ainda em aberto.</p>'));
+  const bx = el('<div></div>');
+  ab.forEach(x=>{
+   const atras = x.c.quando && x.c.quando < HOJE;
+   const l = el('<div class="conv" style="grid-template-columns:1fr auto auto;gap:10px">'
+    +'<div><span class="nm">'+esc(x.c.oque||'(sem descrição)')+'</span>'
+    +'<div class="sub">'+esc(x.c.quem||'sem dono')+'</div></div>'
+    +'<span class="'+(atras?'warn':'mini')+'">'+(x.c.quando? dbr(x.c.quando):'sem prazo')+'</span>'
+    +'<button class="btn ghost sm">Feito</button></div>');
+   l.querySelector('button').onclick = () => { x.c.feito = true; salvar(); render(); };
+   bx.append(l);
+  });
+  m.append(bx);
+ }
+ campoLivre(m,'compromissos','O que combinamos hoje','quem faz o quê até quando');
+ campoLivre(m,'travas','O que está travando','');
+
+ m.append(el('<h2>Metas de pontos</h2>'));
+ m.append(el('<p class="lede">Quantos pontos cada um precisa somar por semana e por mês.</p>'));
  NOMES.filter(ativo).forEach(n=>{
-  const feito = V.pessoas[n].tocados;
-  const row = el('<div class="meta-row"><div><span class="nm">'+n+'</span>'
-   +'<div class="sub" data-t></div><div class="prog"><i data-b></i></div></div>'
-   +'<input type="number" min="0" inputmode="numeric" aria-label="Meta de '+n+'"></div>');
-  const inp=row.querySelector('input'), txt=row.querySelector('[data-t]'), bar=row.querySelector('[data-b]');
-  inp.value = dados.metas[n] ?? '';
-  const pinta = () => {
-   const meta = +inp.value || 0;
-   txt.textContent = meta ? feito+' de '+meta+', faltam '+Math.max(meta-feito,0)
-     : feito+' negócios trabalhados, sem meta definida';
-   bar.style.width = (meta ? Math.min(feito/meta*100,100) : 0)+'%';
-   bar.classList.toggle('miss', meta>0 && feito<meta);
-  };
-  inp.oninput = () => { dados.metas[n] = inp.value===''? null : +inp.value; pinta(); salvar(); };
-  pinta(); m.append(row);
+  const mt = metaPontos(n);
+  const row = el('<div class="meta-row"><div><span class="nm">'+esc(n)+'</span>'
+   +'<div class="sub">semana · mês</div></div>'
+   +'<input type="number" min="0" inputmode="numeric" style="max-width:84px" '
+   +'aria-label="Meta semanal de '+esc(n)+'">'
+   +'<input type="number" min="0" inputmode="numeric" style="max-width:84px" '
+   +'aria-label="Meta mensal de '+esc(n)+'"></div>');
+  const [a,b] = row.querySelectorAll('input');
+  a.value = mt.semana||''; b.value = mt.mes||'';
+  const grava = () => { dados.metasPontos = dados.metasPontos || {};
+   dados.metasPontos[n] = {semana:+a.value||0, mes:+b.value||0}; salvar(); };
+  a.oninput = grava; b.oninput = grava;
+  m.append(row);
  });
 
- /* --- 4. anotações --- */
- m.append(el('<h2>4 · Anotações da reunião</h2>'));
- CAMPOS.forEach(([k,rot,ph])=>{
-  m.append(el('<label for="f-'+k+'">'+rot+(ph?'<i>'+esc(ph)+'</i>':'')+'</label>'));
-  const ta = el('<textarea id="f-'+k+'" rows="3"></textarea>');
-  ta.value = dados[k]||'';
-  ta.oninput = () => { dados[k]=ta.value; salvar(); };
-  m.append(ta);
+ m.append(el('<h2>Quanto vale cada coisa</h2>'));
+ m.append(el('<p class="lede">O peso de cada atividade. Mudou aqui, todos os pontos recalculam.</p>'));
+ const pc = pontosCfg(), ex = extraCfg();
+ Object.keys(pc).forEach(k=>{
+  m.append(el('<label for="pt-'+k+'">'+esc(k)+'</label>'));
+  const i = el('<input type="number" class="search" id="pt-'+k+'" style="max-width:120px">');
+  i.value = pc[k];
+  i.oninput = () => { dados.pontos = dados.pontos || {};
+   dados.pontos.canais = {...pontosCfg(), [k]: +i.value||0}; salvar(); };
+  m.append(i);
+ });
+ [['venda','Venda fechada'],['tarefaNoPrazo','Tarefa concluída no prazo']].forEach(([k,rot])=>{
+  m.append(el('<label for="px-'+k+'">'+rot+'</label>'));
+  const i = el('<input type="number" class="search" id="px-'+k+'" style="max-width:120px">');
+  i.value = ex[k];
+  i.oninput = () => { dados.pontos = dados.pontos || {};
+   dados.pontos.extra = {...extraCfg(), [k]: +i.value||0}; salvar(); };
+  m.append(i);
  });
 
  const acts = el('<div class="actions no-print">'
@@ -2977,7 +3105,7 @@ function salvar(){
  clearTimeout(tmr);
  tmr = setTimeout(async () => {
   /* O aviso "Salvo" só existe na Matinal, mas a gravação vale para todas as abas:
-     PDI, alertas ocultos e reuniões também passam por aqui. */
+     PDI, alertas, reuniões, registros e pontos também passam por aqui. */
   const s = document.getElementById('saved');
   try { await window.storage.set('matinal:campos', JSON.stringify(dados));
         if(s) s.textContent = 'Salvo'; }
@@ -2998,98 +3126,79 @@ function avisarFalhaAoSalvar(){
 }
 
 function corpoApresentacao(){
- const T = totais();
- let h = '<h2>Matinal — '+PER.rot+'</h2>'
-  +'<p class="mini">Pipedrive, extraído em '+D.extracao+'. Recorte: '+PER.ini.slice(8,10)+'/'+PER.ini.slice(5,7)
-  +' a '+PER.fim.slice(8,10)+'/'+PER.fim.slice(5,7)+'.</p>'
-  +'<table><thead><tr><th>Pessoa</th><th class="r">Negócios trabalhados</th><th class="r">Contatos</th>'
-  +'<th class="r">Atividades</th><th class="r">Dias ativos</th></tr></thead><tbody>'
-  + NOMES.map(n=>{ const p=V.pessoas[n];
-     return '<tr><td>'+n+'</td><td class="r">'+p.tocados+'</td><td class="r">'+realDe(p)
-      +'</td><td class="r">'+p.total+'</td><td class="r">'+p.dias+'</td></tr>'; }).join('')
-  +'</tbody></table>'
-  +'<h2>Funil</h2><p>'+nf(T.carteira)+' abertos na carteira, '+nf(T.novos)+' novos, '+T.g+' ganhos e '+T.pc+' perdas comerciais no período. '
-  +'Conversão de '+(T.conv===null?'—':T.conv.toFixed(0)+'%')+'. '
-  +T.po+' descartes operacionais ficam fora da taxa.</p>';
- const metas = dados.metas||{};
- if(NOMES.some(n=>metas[n])){
-  h += '<h2>Metas</h2><table><thead><tr><th>Pessoa</th><th class="r">Feito</th><th class="r">Meta</th>'
-   +'<th class="r">Falta</th></tr></thead><tbody>'
-   + NOMES.map(n=>{ const f=V.pessoas[n].tocados, mt=metas[n]||0;
-      return '<tr><td>'+n+'</td><td class="r">'+f+'</td><td class="r">'+(mt||'—')
-       +'</td><td class="r">'+(mt?Math.max(mt-f,0):'—')+'</td></tr>'; }).join('') + '</tbody></table>';
+ const [si, sf] = semanaAtual(), [mi, mf] = mesAtual();
+ let h = '<h1>Matinal — '+esc(EMP.nome)+'</h1><p class="sub">'+dbr(HOJE)+'</p>';
+
+ if((dados.dinamica||'').trim() || (dados.dinamicaNotas||'').trim()){
+  h += '<h2>Dinâmica</h2>';
+  if((dados.dinamica||'').trim()) h += '<p><b>'+esc(dados.dinamica)+'</b></p>';
+  if((dados.dinamicaNotas||'').trim()) h += '<p>'+esc(dados.dinamicaNotas)+'</p>';
  }
- const qq = V.negocios.filter(x=>x.temp==='quente');
- if(qq.length){
-  h += '<h2>Clientes quentes — perguntar nome por nome</h2><table><thead><tr><th>Negócio</th>'
-   +'<th>Situação</th><th>Responsável</th><th class="r">Parado</th></tr></thead><tbody>'
-   + qq.map(x=>'<tr><td>'+esc(x.t)+'</td><td>'+(x.s?esc(x.s):'—')+'</td><td>'+esc(x.d)
+
+ const ultDia = [...new Set(D.ativ.filter(ativNoEscopo).map(x=>x.q))].sort().pop();
+ if(ultDia){
+  h += '<h2>Rotina — fechamento de '+dbr(ultDia)+'</h2>'
+   +'<table><thead><tr><th>Pessoa</th><th class="r">Negócios</th><th class="r">Contatos</th>'
+   +'<th class="r">Ganhos</th><th class="r">Pontos</th></tr></thead><tbody>'
+   + fechamentoDia(ultDia).map(f=>'<tr><td>'+f.n+'</td><td class="r">'+f.trab+'</td><td class="r">'
+      +f.cont+'</td><td class="r">'+f.ganhos+'</td><td class="r">'
+      +nf(pontosDe(f.n, ultDia, ultDia).total)+'</td></tr>').join('')
+   + '</tbody></table>';
+ }
+
+ const tabelaPts = (ini,fim,campo,rot) => {
+  const l = NOMES.filter(ativo).map(n=>({n, ...pontosDe(n,ini,fim), meta:metaPontos(n)[campo]||0}));
+  if(!l.some(x=>x.total || x.meta)) return '';
+  return '<h2>Resultados — '+rot+'</h2>'
+   +'<table><thead><tr><th>Pessoa</th><th class="r">Pontos</th><th class="r">Meta</th>'
+   +'<th class="r">Falta</th><th class="r">Atividades</th><th class="r">Vendas</th></tr></thead><tbody>'
+   + l.map(x=>'<tr><td>'+x.n+'</td><td class="r">'+nf(x.total)+'</td><td class="r">'
+      +(x.meta? nf(x.meta):'—')+'</td><td class="r">'
+      +(x.meta? nf(Math.max(x.meta-x.total,0)) : '—')+'</td><td class="r">'+x.ativ
+      +'</td><td class="r">'+x.vendas+'</td></tr>').join('')
+   + '</tbody></table>';
+ };
+ h += tabelaPts(si, sf, 'semana', 'semana de '+dbr(si)+' a '+dbr(sf));
+ h += tabelaPts(mi, mf, 'mes', 'mês de '+(MES_LONGO[mi.slice(5,7)]||''));
+
+ const q = V.negocios.filter(x=>x.temp==='quente');
+ if(q.length){
+  h += '<h2>Quentes</h2><table><thead><tr><th>Negócio</th><th>Cliente</th><th>Com quem</th>'
+   +'<th class="r">Parado</th></tr></thead><tbody>'
+   + q.map(x=>'<tr><td>'+esc(x.t)+'</td><td>'+esc(x.cl||'—')+'</td><td>'+esc(x.d)
      +'</td><td class="r">'+x.p+' d</td></tr>').join('') + '</tbody></table>';
  }
- if(visiveis().length) h += '<h2>Alertas</h2><table><tbody>'
-  + visiveis().map(a=>'<tr><td style="width:64px">'+TAG[a.n][1]+'</td><td><b>'+esc(a.t)+'</b><br>'
-     +'<span class="mini">'+esc(a.a)+'</span></td></tr>').join('') + '</tbody></table>';
- const pdi = dados.pdi || {};
- const comPdi = NOMES.filter(ativo).filter(n => pdi[n] && PDI.some(([k])=>(pdi[n][k]||'').trim()));
- if(comPdi.length){
-  h += '<h2>Plano de desenvolvimento</h2>';
-  comPdi.forEach(n=>{
-   h += '<p><b>'+n+'</b><br>' + PDI.filter(([k])=>(pdi[n][k]||'').trim())
-     .map(([k,rot])=>'<span class="mini">'+rot+':</span> '+esc(pdi[n][k])).join('<br>') + '</p>';
-  });
+
+ if((dados.aprendizados||'').trim() || (dados.ajustes||'').trim()){
+  h += '<h2>Aprendizados</h2>';
+  if((dados.aprendizados||'').trim()) h += '<p>'+esc(dados.aprendizados)+'</p>';
+  if((dados.ajustes||'').trim()) h += '<p><span class="mini">O que muda</span><br>'
+    +esc(dados.ajustes)+'</p>';
  }
+
+ const ab = compromissosAbertos();
+ if(ab.length || (dados.compromissos||'').trim() || (dados.travas||'').trim()){
+  h += '<h2>Compromissos</h2>';
+  if(ab.length) h += '<table><thead><tr><th>O quê</th><th>Quem</th><th>Prazo</th></tr></thead><tbody>'
+   + ab.map(x=>'<tr><td>'+esc(x.c.oque||'—')+'</td><td>'+esc(x.c.quem||'—')+'</td><td>'
+     +(x.c.quando? dbr(x.c.quando):'—')+'</td></tr>').join('') + '</tbody></table>';
+  if((dados.compromissos||'').trim()) h += '<p>'+esc(dados.compromissos)+'</p>';
+  if((dados.travas||'').trim()) h += '<p><span class="mini">Travas</span><br>'+esc(dados.travas)+'</p>';
+ }
+
  const pend = pendencias().filter(x=>x.quando && x.quando <= HOJE);
  if(pend.length){
-  h += '<h2>Vencido ou para hoje</h2><table><thead><tr><th>O quê</th><th>Onde</th>'
-   +'<th>Quem</th><th>Data</th></tr></thead><tbody>'
+  h += '<h2>Vencido ou para hoje</h2><table><thead><tr><th>O quê</th><th>Onde</th><th>Quem</th>'
+   +'<th>Data</th></tr></thead><tbody>'
    + pend.map(x=>'<tr><td>'+esc(x.o)+'</td><td>'+esc(x.onde)+'</td><td>'+esc(x.quem||'—')
      +'</td><td>'+dbr(x.quando)+'</td></tr>').join('') + '</tbody></table>';
  }
- const ok = objetivosAbertos().filter(o=>(o.objetivo||'').trim());
- if(ok.length){
-  h += '<h2>Objetivos em aberto</h2><table><thead><tr><th>Quem</th><th>Objetivo</th>'
-   +'<th>Como saber</th><th class="r">Progresso</th><th>Prazo</th></tr></thead><tbody>'
-   + ok.map(o=>'<tr><td>'+esc(o.quem)+'</td><td>'+esc(o.objetivo)+'</td><td>'+esc(o.kr||'—')
-     +'</td><td class="r">'+(o.progresso||0)+'%</td><td>'+(o.prazo? dbr(o.prazo):'—')+'</td></tr>').join('')
-   + '</tbody></table>';
- }
- const ab = compromissosAbertos();
- if(ab.length){
-  h += '<h2>Combinados em aberto</h2><table><thead><tr><th>O quê</th><th>Quem</th>'
-   +'<th>Prazo</th><th>Combinado em</th></tr></thead><tbody>'
-   + ab.map(x=>'<tr><td>'+esc(x.c.oque||'—')+'</td><td>'+esc(x.c.quem||'—')+'</td><td>'
-     +(x.c.quando? dbr(x.c.quando):'—')+'</td><td>'+dbr(x.data)+'</td></tr>').join('')
-   + '</tbody></table>';
- }
- const ultDia = [...new Set(D.ativ.filter(ativNoEscopo).map(x=>x.q))].sort().pop();
- if(ultDia){
-  h += '<h2>Fechamento de '+ultDia.slice(8,10)+'/'+ultDia.slice(5,7)+'</h2>'
-   +'<table><thead><tr><th>Pessoa</th><th class="r">Trabalhados</th><th class="r">Contatos</th>'
-   +'<th class="r">Ganhos</th><th class="r">Perdidos</th></tr></thead><tbody>'
-   + fechamentoDia(ultDia).map(f=>'<tr><td>'+f.n+'</td><td class="r">'+f.trab+'</td><td class="r">'
-      +f.cont+'</td><td class="r">'+f.ganhos+'</td><td class="r">'+f.perdidos+'</td></tr>').join('')
-   + '</tbody></table>';
- }
- CAMPOS.forEach(([k,rot])=>{ if((dados[k]||'').trim())
-   h += '<h2>'+rot+'</h2><p style="white-space:pre-wrap">'+esc(dados[k])+'</p>'; });
- h += '<h2>Roteiro — 25 minutos</h2><table><tbody>'
-  +'<tr><td class="r" style="width:56px">0-3</td><td>Emilly lê os números: negócios trabalhados, contatos, ganhos e perdidos.</td></tr>'
-  +'<tr><td class="r">3-15</td><td>Cada um: quantos negócios você trabalhou ontem? Qual andou de etapa? Qual você dá como perdido hoje?</td></tr>'
-  +'<tr><td class="r">15-21</td><td>Travas: o que te impediu de avançar?</td></tr>'
-  +'<tr><td class="r">21-25</td><td>Compromisso do dia: quantos negócios você trabalha hoje, e quais?</td></tr>'
-  +'</tbody></table>';
- return h;
-}
 
-function apresentacaoTexto(){
- const div = document.createElement('div');
- div.innerHTML = corpoApresentacao();
- div.querySelectorAll('tr').forEach(tr=>{
-  const c = [...tr.children].map(td=>td.textContent.trim()).filter(Boolean);
-  tr.replaceWith(document.createTextNode(c.join(' · ') + '\n'));
- });
- div.querySelectorAll('h2').forEach(h=> h.replaceWith(document.createTextNode('\n*'+h.textContent+'*\n')));
- return div.textContent.replace(/\n{3,}/g,'\n\n').trim();
+ const vis = visiveis();
+ if(vis.length){
+  h += '<h2>Alertas</h2><ul>' + vis.map(a=>'<li>'+esc(a.t)+'</li>').join('') + '</ul>';
+ }
+ return h;
 }
 
 function imprimir(){
@@ -3226,7 +3335,7 @@ function linha(host, html, preencher){
 /* Duas camadas: primeiro o assunto, depois a tela. Dezessete abas lado a lado
    não se navega no celular — e a pessoa perde tempo procurando em vez de agir. */
 const GRUPOS = [
- {id:'hoje',      rot:'Hoje',      abas:[['agenda','O que fazer'],['alertas','Alertas']]},
+ {id:'hoje',      rot:'Agenda',    abas:[['agenda','O que fazer'],['alertas','Alertas']]},
  {id:'comercial', rot:'Comercial', abas:[['resumo','Resumo'],['quentes','Quentes'],
    ['leitura','Leitura'],['atividades','Atividades'],['carteira','Carteira'],['resultado','Resultado']]},
  {id:'pessoas',   rot:'Pessoas',   abas:[['pessoas','Time'],['reunioes','Reuniões']]},
