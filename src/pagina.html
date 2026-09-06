@@ -265,6 +265,10 @@ button.lnk:active{color:var(--teal)}
 .okr .okb{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .okr input[type=range]{flex:1;min-width:120px;accent-color:var(--teal)}
 .okr .okv{min-width:44px;text-align:right;font-size:14px}
+.ajuste{border:1px solid var(--rule);border-radius:8px;padding:14px;background:#FAFBF9}
+.ajuste label{margin-top:12px}
+.ajuste label:first-child{margin-top:0}
+.ajuste .actions{border-top:1px solid var(--rule)}
 .comp{display:flex;gap:10px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--rule)}
 .comp.feito{opacity:.5}
 .comp.feito .cpo{text-decoration:line-through}
@@ -602,6 +606,32 @@ const el = h => { const t=document.createElement('template'); t.innerHTML=h.trim
 const CFG_PADRAO = {jornadaIni:'08:00', jornadaFim:'18:00', almocoMin:60,
   paradoDias:30, semContatoDias:14, cadenciaMax:1};
 const cfg = () => ({...CFG_PADRAO, ...(dados.cfgAlertas||{})});
+
+/* Cada alerta tem o próprio ajuste, no próprio cartão: liga e desliga, muda a
+   gravidade, adia por uns dias e ignora pessoas específicas. */
+const NIVEIS = [['critico','Crítico'],['alto','Alto'],['medio','Médio'],['off','Desligado']];
+const PARAMS = {
+ jornada_fora:   [['jornadaIni','Começo da jornada','time'],['jornadaFim','Fim da jornada','time']],
+ jornada_almoco: [['almocoMin','Intervalo mínimo, em minutos','number']],
+ parados:        [['paradoDias','Dias parado até avisar','number']],
+ um_toque:       [['cadenciaMax','Até quantos contatos conta como abandonado','number']],
+};
+const COM_PESSOA = ['jornada_fora','jornada_almoco'];
+const cfgA = id => (dados.cfgPorAlerta||{})[id] || {};
+const gravaA = (id, mudanca) => {
+ dados.cfgPorAlerta = dados.cfgPorAlerta || {};
+ dados.cfgPorAlerta[id] = {...cfgA(id), ...mudanca};
+ salvar(); render();
+};
+const nivelDe = (a) => cfgA(a.id).nivel || a.n;
+const ignorados = id => cfgA(id).ignorar || [];
+const adiadoAte = id => cfgA(id).ate || null;
+const oculto = a => {
+ const c = cfgA(a.id);
+ if(c.nivel === 'off') return true;
+ if(c.ate && c.ate > HOJE) return true;
+ return !!(dados.ocultos||{})[a.id];   /* formato antigo, ainda respeitado */
+};
 const hhmm = h => { const [a,b]=(h||'').split(':').map(Number);
   return (a||a===0) ? a*60+(b||0) : null; };
 const relogio = min => String(Math.floor(min/60)).padStart(2,'0')+':'+String(min%60).padStart(2,'0');
@@ -634,8 +664,9 @@ function jornada(){
 
 function regrasAlerta(){
  const c = cfg(), J = jornada(), N = V.negocios;
- const fora = J.filter(d=>d.cedo.length || d.tarde.length);
- const semInt = J.filter(d=>d.semAlmoco);
+ const fora = J.filter(d=>(d.cedo.length || d.tarde.length)
+   && !ignorados('jornada_fora').includes(d.quem));
+ const semInt = J.filter(d=>d.semAlmoco && !ignorados('jornada_almoco').includes(d.quem));
  const semDono = N.filter(x=>!x.cl);
  const paradosMuito = N.filter(x=>x.p > c.paradoDias && !MORTAS.includes(x.e));
  const descartadosAbertos = N.filter(x=>['Sem interesse','Arquivado'].includes(x.e));
@@ -724,9 +755,8 @@ function regrasAlerta(){
 }
 
 const TAG = {critico:['t-clay','Crítico'], alto:['t-ochre','Alto'], medio:['t-gray','Médio']};
-const oculto = a => !!(dados.ocultos||{})[a.id];
 const visiveis = () => regrasAlerta().filter(a=>!oculto(a));
-const nCriticos = () => visiveis().filter(a=>a.n!=='medio').length;
+const nCriticos = () => visiveis().filter(a=>nivelDe(a)!=='medio').length;
 
 function viewAlertas(m){
  const todas = regrasAlerta();
@@ -780,45 +810,81 @@ function viewAlertas(m){
      const itens = a.lista();
      if(itens.length) tabelaUnidade(host, itens);
     }
-    const ac = el('<div class="actions" style="margin-top:16px;padding-top:14px">'
-      +'<button class="btn ghost sm">Ocultar este alerta</button></div>');
-    ac.querySelector('button').onclick = () => {
-     dados.ocultos = dados.ocultos || {}; dados.ocultos[a.id] = HOJE; salvar(); render();
-    };
-    host.append(ac);
+    host.append(el('<h4 class="sec" style="margin-top:20px">Ajustar este alerta</h4>'));
+    const cx = el('<div class="ajuste"></div>');
+
+    cx.append(el('<label>Gravidade</label>'));
+    const segN = el('<div class="seg">' + NIVEIS.map(([k,r])=>
+      '<button data-n="'+k+'">'+r+'</button>').join('') + '</div>');
+    segN.querySelectorAll('button').forEach(b=>{
+     b.classList.toggle('on', b.dataset.n === (cfgA(a.id).nivel || a.n));
+     b.onclick = () => gravaA(a.id, {nivel: b.dataset.n, ate: null});
+    });
+    cx.append(segN);
+    cx.append(el('<p class="mini">Desligado tira da lista sem apagar a regra. '
+      +'Crítico e Alto contam no número vermelho do menu.</p>'));
+
+    (PARAMS[a.id]||[]).forEach(([k,rot,tipo])=>{
+     cx.append(el('<label for="pa-'+a.id+'-'+k+'">'+rot+'</label>'));
+     const i = el('<input type="'+tipo+'" class="search" id="pa-'+a.id+'-'+k
+       +'" style="max-width:190px">');
+     i.value = cfg()[k];
+     i.onchange = () => { dados.cfgAlertas = {...cfg(), [k]: tipo==='number'? +i.value : i.value};
+       salvar(); render(); };
+     cx.append(i);
+    });
+
+    if(COM_PESSOA.includes(a.id)){
+     cx.append(el('<label>Não avisar sobre</label>'));
+     const seg = el('<div class="seg" style="flex-wrap:wrap">' + NOMES.map(n=>
+       '<button data-p="'+esc(n)+'">'+esc(n)+'</button>').join('') + '</div>');
+     seg.querySelectorAll('button').forEach(b=>{
+      b.classList.toggle('on', ignorados(a.id).includes(b.dataset.p));
+      b.onclick = () => {
+       const l = [...ignorados(a.id)];
+       const i = l.indexOf(b.dataset.p);
+       if(i<0) l.push(b.dataset.p); else l.splice(i,1);
+       gravaA(a.id, {ignorar:l});
+      };
+     });
+     cx.append(seg);
+     cx.append(el('<p class="mini">Quem trabalha fora do horário por combinado fica de fora sem '
+       +'desligar o alerta para o resto do time.</p>'));
+    }
+
+    const ac = el('<div class="actions" style="margin-top:14px;padding-top:12px">'
+      +'<button class="btn ghost sm" data-a="7">Adiar 7 dias</button>'
+      +'<button class="btn ghost sm" data-a="30">Adiar 30 dias</button>'
+      +'<button class="btn ghost sm" data-a="off">Desligar</button></div>');
+    ac.querySelectorAll('button').forEach(b => b.onclick = () => {
+     if(b.dataset.a==='off') return gravaA(a.id, {nivel:'off'});
+     const d = new Date(HOJE+'T12:00:00'); d.setDate(d.getDate() + (+b.dataset.a));
+     gravaA(a.id, {ate: d.toISOString().slice(0,10)});
+    });
+    cx.append(ac);
+    host.append(cx);
    });
  });
 
  if(esc_.length){
-  m.append(el('<h2>Ocultos</h2>'));
+  m.append(el('<h2>Silenciados</h2>'));
   esc_.forEach(a=>{
+   const c = cfgA(a.id);
+   const motivo = c.nivel==='off' ? 'desligado'
+     : c.ate ? 'volta em '+dbr(c.ate)+', em '+dif(HOJE,c.ate)+' dias'
+     : 'ocultado';
    const r = el('<div class="conv" style="grid-template-columns:1fr auto"><div>'
-     +'<span class="nm">'+esc(a.t)+'</span><div class="sub">'+TAG[a.n][1]
-     +', ocultado em '+dbr(dados.ocultos[a.id])+'</div></div>'
-     +'<button class="btn ghost sm">Mostrar</button></div>');
-   r.querySelector('button').onclick = () => { delete dados.ocultos[a.id]; salvar(); render(); };
+     +'<span class="nm">'+esc(a.t)+'</span><div class="sub">'+motivo
+     + (ignorados(a.id).length? ' · ignorando '+ignorados(a.id).map(esc).join(', ') : '')
+     +'</div></div><button class="btn ghost sm">Reativar</button></div>');
+   r.querySelector('button').onclick = () => {
+    if(dados.ocultos) delete dados.ocultos[a.id];
+    gravaA(a.id, {nivel:null, ate:null});
+   };
    m.append(r);
   });
  }
 
- m.append(el('<h2>Configurar</h2>'));
- m.append(el('<p class="lede">Os limites de cada regra. Mudou aqui, os alertas recalculam.</p>'));
- const C = cfg();
- const CAMPOS_CFG = [
-  ['jornadaIni','Início da jornada','time'],
-  ['jornadaFim','Fim da jornada','time'],
-  ['almocoMin','Intervalo mínimo esperado, em minutos','number'],
-  ['paradoDias','Dias parado até virar alerta','number'],
-  ['cadenciaMax','Até quantos contatos conta como abandonado','number'],
- ];
- CAMPOS_CFG.forEach(([k,rot,tipo])=>{
-  m.append(el('<label for="cfg-'+k+'">'+rot+'</label>'));
-  const i = el('<input type="'+tipo+'" class="search" id="cfg-'+k+'" style="max-width:200px">');
-  i.value = C[k];
-  i.onchange = () => { dados.cfgAlertas = {...cfg(), [k]: tipo==='number'? +i.value : i.value};
-    salvar(); render(); };
-  m.append(i);
- });
 }
 
 /* ---------------- tabelas ---------------- */
