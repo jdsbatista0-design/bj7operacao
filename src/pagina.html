@@ -376,6 +376,32 @@ textarea{width:100%;font:inherit;font-size:16px;padding:11px 12px;border:1px sol
 const D = __DADOS__;
 const REAL = ['Ligação','Visita','Reunião','WhatsApp'];
 const MORTAS = D.mortas;
+/* Se o conjunto de dados vier de uma versão anterior do Worker, campos podem
+   faltar. Sem isto a página quebra inteira e não mostra nem o motivo. */
+(function completar(){
+ const hoje = D.hoje || new Date().toISOString().slice(0,10);
+ D.hoje = hoje;
+ D.negocios = D.negocios || []; D.resultado = D.resultado || []; D.ativ = D.ativ || [];
+ D.mortas = D.mortas || [];
+ D.negocios.forEach(x=>{ if(!x.cr) x.cr = x.u || hoje; });
+ D.resultado.forEach(x=>{ if(!x.cr) x.cr = x.a || x.q || hoje; });
+ const crs = [...D.negocios, ...D.resultado].map(x=>x.cr).filter(Boolean).sort();
+ const qs  = D.ativ.map(x=>x.q).filter(Boolean).sort();
+ D.janela = D.janela || {ini: crs[0] || hoje, fim: hoje};
+ D.cobertura = Object.assign({ativDe: qs[0] || hoje, ativAte: qs[qs.length-1] || hoje,
+   negDe: crs[0] || hoje, orfas: 0, orfasIds: []}, D.cobertura || {});
+ D.extracao = D.extracao || (hoje.slice(8,10)+'/'+hoje.slice(5,7)+'/'+hoje.slice(0,4));
+ if(!D.meses || !D.meses.length){
+  D.meses = [];
+  let [y,mm] = [+(D.janela.ini||hoje).slice(0,4), +(D.janela.ini||hoje).slice(5,7)];
+  const fy = +hoje.slice(0,4), fm = +hoje.slice(5,7);
+  while(y < fy || (y===fy && mm <= fm)){
+   D.meses.push(y+'-'+String(mm).padStart(2,'0'));
+   mm++; if(mm>12){ mm=1; y++; }
+  }
+ }
+})();
+
 const HOJE = D.hoje;
 const COB = D.cobertura;
 /* A janela em que existe registro de atividade. Fora dela, qualquer número de
@@ -479,6 +505,19 @@ const EQUIPE = () => [...new Set([
 const FRENTE = {Nicolas:'Izi — mercado e captação', Keth:'Izi — clientes e conversão',
  Gabriel:'BJ7 Painéis', Rafael:'saiu em março de 2026'};
 const frenteDe = n => FRENTE[n] || 'sem frente definida';
+
+/* Quem ainda está no time. Sai dos dados, não de uma lista fixa: sem atividade
+   há mais de 60 dias e sem nenhum negócio aberto na mão. Quem saiu continua
+   existindo no histórico — apagar a pessoa apagaria o trabalho dela. */
+const DIAS_INATIVO = 60;
+function ultimaAtividade(n){
+ return D.ativ.filter(x=>x.a===n).map(x=>x.q).sort().pop() || null;
+}
+function ativo(n){
+ if(D.negocios.some(x=>x.d===n)) return true;
+ const u = ultimaAtividade(n);
+ return u ? dif(u, D.hoje) <= DIAS_INATIVO : false;
+}
 const QUENTES = ['Qualificado','Mídia Kit','Visita','Proposta'];
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -923,7 +962,7 @@ const PDI = [
 const objetivosDe = n => (dados.okrs||[]).filter(o=>o.quem===n)
   .sort((a,b)=> (a.prazo||'9999') < (b.prazo||'9999') ? -1 : 1);
 const objetivosAbertos = () => (dados.okrs||[])
-  .filter(o=>o.status!=='concluido' && NOMES.includes(o.quem));
+  .filter(o=>o.status!=='concluido' && NOMES.filter(ativo).includes(o.quem));
 
 function diagnostico(n){
  const p = V.pessoas[n], r = realDe(p);
@@ -952,7 +991,8 @@ function viewPessoas(m){
   +'visita, reunião e WhatsApp. Abaixo de cada pessoa, o que os números dizem e o plano combinado.</p>'));
  const maxA = Math.max(...NOMES.map(n=>V.pessoas[n].total), 1);
  dados.pdi = dados.pdi || {};
- NOMES.forEach(n=>{
+ const ativos = NOMES.filter(ativo), sairam = NOMES.filter(n=>!ativo(n));
+ const cartao = n => {
   const p = V.pessoas[n], r = realDe(p);
   const tags = Object.entries(p.tipos).sort((a,b)=>b[1]-a[1])
    .map(([k,v])=>'<span class="tag '+(REAL.includes(k)?'t-teal':'t-gray')+'">'+esc(k)+' '+v+'</span>').join('');
@@ -1045,7 +1085,22 @@ function viewPessoas(m){
     host.append(el('<h4 class="sec">Negócios trabalhados no período</h4>'));
     detalhePessoa(host, n);
    });
- });
+ };
+ ativos.forEach(cartao);
+ if(sairam.length){
+  m.append(el('<h2>Fora do time</h2>'));
+  m.append(el('<p class="lede">Sem atividade há mais de '+DIAS_INATIVO+' dias e sem nenhum negócio na '
+   +'mão. Continuam aqui porque o trabalho que fizeram é parte do histórico — mas ficam fora das metas, '
+   +'do fechamento do dia e da matinal.</p>'));
+  sairam.forEach(n=>{
+   const u = ultimaAtividade(n);
+   linha(m, '<div class="hd"><span class="nm">'+esc(n)+'</span>'
+    +'<span class="stat num">'+(u? 'última atividade em '+dbr(u) : 'nunca registrou atividade')+'</span></div>'
+    +'<div class="sub">'+esc(frenteDe(n))+' · '+V.pessoas[n].total+' atividades no período · '
+    + D.resultado.filter(x=>x.d===n && x.r==='ganho').length+' ganhos no histórico</div>',
+    host => detalhePessoa(host, n));
+  });
+ }
 }
 
 function detalhePessoa(host, n){
@@ -2440,7 +2495,7 @@ function pendencias(){
    out.push({quando:c.quando||'', o:c.oque, quem:c.quem||'', onde:'Combinado de reunião',
      aba:'reunioes', ir:()=>{ atual='reunioes'; render(); }})));
  (dados.okrs||[]).filter(o=>o.status!=='concluido' && (o.objetivo||'').trim()
-   && NOMES.includes(o.quem)).forEach(o=>
+   && NOMES.filter(ativo).includes(o.quem)).forEach(o=>
   out.push({quando:o.prazo||'', o:o.objetivo, quem:o.quem, onde:'Objetivo',
     aba:'pessoas', ir:()=>{ atual='pessoas'; render(); }}));
  return out.sort((a,b)=> (a.quando||'9999') < (b.quando||'9999') ? -1 : 1);
@@ -2626,7 +2681,7 @@ function viewReunioes(m){
   {b:abertos.length, s:'combinados em aberto'},
   {b:atrasados.length, s:'combinados fora do prazo'}]));
 
- const semUm = NOMES.filter(n=>!(dados.reunioes||[]).some(r=>r.tipo==='1a1'
+ const semUm = NOMES.filter(ativo).filter(n=>!(dados.reunioes||[]).some(r=>r.tipo==='1a1'
    && (r.pessoas||[]).includes(n)));
  if(semUm.length) m.append(el('<p class="lede" style="margin-top:14px"><b>Sem nenhum 1:1 registrado:</b> '
    + semUm.map(esc).join(', ') + '. Um por mês com cada um já muda a conversa.</p>'));
@@ -2757,7 +2812,7 @@ let dados = {};
 
 function fechamentoDia(dia){
  const A = D.ativ.filter(x=>x.q===dia && ativNoEscopo(x));
- return NOMES.map(n=>{
+ return NOMES.filter(ativo).map(n=>{
   const meus = A.filter(x=>x.a===n);
   return {n,
    trab: new Set(meus.filter(x=>x.i).map(x=>x.i)).size,
@@ -2816,7 +2871,7 @@ function viewMatinal(m){
  /* --- 3. metas do mês --- */
  m.append(el('<h2>3 · Metas do mês</h2>'));
  m.append(el('<p class="lede">Quantos negócios distintos cada um precisa trabalhar até o fim do mês.</p>'));
- NOMES.forEach(n=>{
+ NOMES.filter(ativo).forEach(n=>{
   const feito = V.pessoas[n].tocados;
   const row = el('<div class="meta-row"><div><span class="nm">'+n+'</span>'
    +'<div class="sub" data-t></div><div class="prog"><i data-b></i></div></div>'
@@ -2909,7 +2964,7 @@ function corpoApresentacao(){
   + visiveis().map(a=>'<tr><td style="width:64px">'+TAG[a.n][1]+'</td><td><b>'+esc(a.t)+'</b><br>'
      +'<span class="mini">'+esc(a.a)+'</span></td></tr>').join('') + '</tbody></table>';
  const pdi = dados.pdi || {};
- const comPdi = NOMES.filter(n => pdi[n] && PDI.some(([k])=>(pdi[n][k]||'').trim()));
+ const comPdi = NOMES.filter(ativo).filter(n => pdi[n] && PDI.some(([k])=>(pdi[n][k]||'').trim()));
  if(comPdi.length){
   h += '<h2>Plano de desenvolvimento</h2>';
   comPdi.forEach(n=>{
@@ -3154,7 +3209,16 @@ function render(){
    alertas:viewAlertas, matinal:viewMatinal};
  MODULOS.forEach(x=> VIEWS[x.id] = mm => viewModulo(mm, x.id));
  VIEWS.lixeira = viewLixeira;
- (VIEWS[atual] || viewResumo)(m);
+ try {
+  (VIEWS[atual] || viewResumo)(m);
+ } catch(err) {
+  m.innerHTML = '';
+  m.append(el('<div class="aviso"><b>Esta tela não conseguiu carregar.</b><br>'
+   + esc(String(err && err.message || err))
+   + '<br><br>As outras abas continuam funcionando. Toque em Atualizar no topo para buscar '
+   + 'os dados de novo — costuma resolver quando o problema é dado antigo guardado.</div>'));
+  console.error(err);
+ }
 }
 
 let ultY = 0;
