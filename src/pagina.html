@@ -338,6 +338,11 @@ h2 .mini{font-weight:400;font-size:12px;color:var(--faint);margin-left:8px;lette
 .and{display:flex;gap:8px;align-items:center;margin-bottom:6px}
 .and .q{font-size:11.5px;color:var(--faint);min-width:74px;font-variant-numeric:tabular-nums}
 .and .search{flex:1}
+.fonte-ext{background:var(--teal-bg);border:1px solid #CFE0DB;border-left:3px solid var(--teal);
+ border-radius:6px;padding:11px 13px;font-size:13.5px;line-height:1.5;margin-bottom:14px}
+.fonte-ext b{color:var(--teal)}
+.fonte-ext.off{background:#F3F4F1;border-color:var(--rule2);border-left-color:var(--faint)}
+.fonte-ext.off b{color:var(--soft)}
 .previa{min-height:22px;margin-top:8px;font-size:13.5px;color:var(--soft);
  display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .previa b{color:var(--ink);font-weight:600}
@@ -2697,7 +2702,10 @@ const opNome = id => (OPERACOES.find(o=>o.id===id)||{}).nome || id;
 /* as duas empresas que já existem no painel comercial mapeiam direto */
 const OP_DA_EMPRESA = {izi:'izi', paineis:'paineis'};
 
-const lancamentos = () => (dados.lancamentos || []);
+/* A planilha manda. Enquanto ela não estiver ligada, vale o que foi digitado
+   aqui — mas o painel diz de onde veio, sempre. */
+const FIN_EXTERNO = () => !!(D.sheets && D.sheets.ligado && (D.sheets.lancamentos||[]).length);
+const lancamentos = () => FIN_EXTERNO() ? D.sheets.lancamentos : (dados.lancamentos || []);
 /* quanto deste lançamento pertence a uma operação */
 function parteDe(l, opId){
  if(!opId) return +l.valor || 0;
@@ -2727,6 +2735,17 @@ function viewFinanceiro(m){
  const aberto = L.filter(l=>!l.pagoEm);
  const vencido = aberto.filter(l=>l.vencimento && l.vencimento < HOJE);
 
+ if(FIN_EXTERNO()){
+  m.append(el('<div class="fonte-ext"><b>Vem da planilha.</b> '+nf(D.sheets.lancamentos.length)
+   +' lançamentos lidos do Google Sheets. Para mudar um valor, mude na planilha — '
+   +'a Central lê e não escreve.</div>'));
+ } else if(D.sheets && !D.sheets.ligado){
+  m.append(el('<div class="fonte-ext off"><b>Planilha não conectada.</b> '
+   + esc(D.sheets.motivo || D.sheets.erro || '') + '.</div>'));
+ } else if(D.sheets && D.sheets.aviso){
+  m.append(el('<div class="fonte-ext off"><b>Planilha conectada, mas sem dado utilizável.</b> '
+   + esc(D.sheets.aviso) + '.</div>'));
+ }
  m.append(el('<p class="lede">'
   + (op ? 'O que a <b>'+esc(EMP.nome)+'</b> tem no grupo. Cada valor vem de um lançamento único, '
        +'feito uma vez — aqui você vê a parte que é desta empresa, inteira ou rateada.'
@@ -2781,7 +2800,9 @@ function viewFinanceiro(m){
  }
 
  /* --- lançar --- */
- if(op){
+ if(FIN_EXTERNO()){
+  /* nada a criar: a planilha é a fonte */
+ } else if(op){
   m.append(el('<div class="empty" style="margin-top:20px">Lançamentos são criados na visão '
    +'<b>Grupo</b>, para que cada um exista uma vez só. Troque a empresa no topo para lançar.</div>'));
  } else {
@@ -2847,6 +2868,12 @@ function viewFinanceiro(m){
               : 'vence em '+dbr(l.vencimento)) : 'sem vencimento')
        ].filter(Boolean).join(' · ')+'</div>',
      host => {
+      if(FIN_EXTERNO()){
+       host.append(el('<p class="lede" style="margin-top:12px">Este lançamento vem da planilha. '
+        +'Valor cheio '+MOEDA(l.valor)+(op? ', sendo '+MOEDA(parte)+' de '+esc(EMP.nome):'')
+        +'. Para corrigir, edite a linha no Google Sheets e clique em Atualizar.</p>'));
+       return;
+      }
       if(op){
        host.append(el('<p class="lede" style="margin-top:12px">Este lançamento é do grupo. '
         +'O valor cheio é '+MOEDA(l.valor)+' e '+MOEDA(parte)+' pertence a '+esc(EMP.nome)+'. '
@@ -2961,8 +2988,12 @@ function restaurar(l){
  dados.lixeira = dados.lixeira.filter(x=>x.id!==l.id);
  salvar(); render();
 }
-const regs = mid => (dados.registros && dados.registros[mid] || [])
+const TAREFAS_EXTERNAS = () => !!(D.trello && D.trello.ligado);
+const regs = mid => {
+ if(mid==='tarefas' && TAREFAS_EXTERNAS()) return D.trello.tarefas || [];
+ return (dados.registros && dados.registros[mid] || [])
   .filter(r => EMP.id==='grupo' || r.emp===EMP.id);
+};
 const emAberto = (mod, r) => !(mod.concluido||[]).includes(r[mod.status]);
 const atrasado = (mod, r) => emAberto(mod,r) && r[mod.prazo] && r[mod.prazo] < HOJE;
 const vencendo = (mod, r, dias) => { if(!emAberto(mod,r) || !r[mod.prazo]) return false;
@@ -3131,8 +3162,16 @@ function viewTarefas(m){
 
  let fQuem = '', fSt = 'abertas';
 
+ if(TAREFAS_EXTERNAS()){
+  m.append(el('<div class="fonte-ext"><b>Vem do Trello.</b> As tarefas são lidas do quadro e não se '
+   +'edita aqui — quem manda é o Trello. A lista de lá vira a situação daqui: '
+   + esc((D.trello.listas||[]).join(' · ')) + '.</div>'));
+ } else if(D.trello && !D.trello.ligado){
+  m.append(el('<div class="fonte-ext off"><b>Trello não conectado.</b> '
+   + esc(D.trello.motivo || D.trello.erro || '') + '. Enquanto isso, o que você criar fica só aqui.</div>'));
+ }
  m.append(el('<p class="lede">A fila do dia, organizada por urgência. Toque no quadrado para concluir, '
-  +'no texto para abrir. Escreva e aperte Enter para criar.</p>'));
+  +'no texto para abrir'+(TAREFAS_EXTERNAS()?' no Trello':'')+'.</p>'));
 
  const kp = el('<div></div>'); m.append(kp);
  const criar = texto => {
@@ -3146,6 +3185,11 @@ function viewTarefas(m){
   dados.registros.tarefas.unshift(novo); salvar();
   return novo;
  };
+ if(TAREFAS_EXTERNAS()){
+  const ir = el('<div class="actions" style="margin-top:16px"><a class="btn" target="_blank" '
+    +'rel="noopener" href="https://trello.com/b/'+esc(D.trello.board||'')+'">Abrir o quadro no Trello</a></div>');
+  m.append(ir);
+ } else {
  const add = el('<div class="addbar" style="margin-top:16px">'
   +'<input class="search" placeholder="Ex: ligar pro cartório amanhã Nicolas urgente" '
   +'aria-label="Nova tarefa"><button class="btn">Criar</button></div>');
@@ -3189,6 +3233,7 @@ function viewTarefas(m){
  inp.onkeydown = e => { if(e.key==='Enter') fazer(); };
  add.querySelector('button').onclick = fazer;
  m.append(add, previa);
+ }
 
  const donos = [...new Set(abertas.map(r=>r.responsavel).filter(Boolean))].sort();
  const chips = el('<div class="seg" style="flex-wrap:wrap;margin:14px 0 8px">'
@@ -3263,6 +3308,19 @@ function viewTarefas(m){
    if(jaAberto) return;
    const p = el('<div class="panel"></div>');
    cx.after(p);
+   if(TAREFAS_EXTERNAS()){
+    p.append(el('<p class="lede" style="margin-top:12px">'
+     + (r.obs ? esc(r.obs)+'<br><br>' : '')
+     + 'Na lista <b>'+esc(r.lista||'—')+'</b> do Trello'
+     + (r.etiquetas && r.etiquetas.length ? ' · '+r.etiquetas.map(esc).join(', ') : '')
+     + (r.atualizado ? ' · mexeram em '+dbr(r.atualizado) : '') + '.</p>'));
+    if(r.link){
+     const a = el('<div class="actions"><a class="btn ghost sm" target="_blank" rel="noopener" '
+       +'href="'+esc(r.link)+'">Abrir no Trello</a></div>');
+     p.append(a);
+    }
+    return;
+   }
    mod.campos.forEach(c=> campoInput(r, c, salvar, p));
    /* andamento: o que já foi feito, com data. Tarefa que arrasta sem histórico
       vira discussão de memória na reunião. */
@@ -3690,6 +3748,10 @@ function viewGrupo(m){
  const min = D.sincronizadoEm ? Math.round((Date.now()-new Date(D.sincronizadoEm))/6e4) : null;
  m.append(el('<div class="integr">'
   +'<span><i class="bola ok"></i>Pipedrive conectado</span>'
+  +'<span><i class="bola '+(TAREFAS_EXTERNAS()?'ok':'off')+'"></i>Trello'
+   +(TAREFAS_EXTERNAS()?' conectado':' não conectado')+'</span>'
+  +'<span><i class="bola '+(FIN_EXTERNO()?'ok':'off')+'"></i>Planilha'
+   +(FIN_EXTERNO()?' conectada':' não conectada')+'</span>'
   +'<span><i class="bola off"></i>Salesforce não conectado</span>'
   +'<span><i class="bola '+(MODO==='servidor'?'ok':'off')+'"></i>'
    +(MODO==='servidor'?'Dados do time no servidor':'Dados do time não estão sendo salvos')+'</span>'
