@@ -3471,8 +3471,7 @@ function viewGrupo(m){
          : '<span class="bola at"></span>Sem atividade')
       : '<span class="bola off"></span>Aguardando conexão')+'</div></div>');
   if(f.ok){ li.style.cursor='pointer';
-   li.onclick = () => { EMP = EMPRESAS.find(e=>e.id===id) || EMP;
-     trocarEmpresa(id); atual='resumo'; render(); window.scrollTo({top:0}); }; }
+   li.onclick = () => { trocarEmpresa(id); window.scrollTo({top:0}); }; }
   bx.append(li);
  });
  m.append(bx);
@@ -4271,6 +4270,7 @@ function montarEmpresas(){
  const troca = id => {
   EMP = EMPRESAS.find(e=>e.id===id);
   seg.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.e===id));
+  atual = EMP.id === 'grupo' ? 'grupo' : 'resumo';
   calcular();
   res.textContent = nf(V.negocios.length) + ' negócios · ' + NOMES.length
     + (NOMES.length===1?' pessoa':' pessoas');
@@ -4349,42 +4349,56 @@ function linha(host, html, preencher){
 
 /* Duas camadas: primeiro o assunto, depois a tela. Dezessete abas lado a lado
    não se navega no celular — e a pessoa perde tempo procurando em vez de agir. */
-const GRUPOS = [
- {id:'grupo',     rot:'Visão do Grupo', abas:[['grupo','Visão do Grupo']]},
- {id:'hoje',      rot:'Agenda',    abas:[['agenda','O que fazer'],['alertas','Alertas']]},
- {id:'comercial', rot:'Comercial', abas:[['resumo','Resumo'],['quentes','Quentes'],
-   ['leitura','Leitura'],['atividades','Atividades'],['carteira','Carteira'],['resultado','Resultado']]},
- {id:'pessoas',   rot:'Pessoas',   abas:[['pessoas','Time'],['reunioes','Reuniões']]},
- {id:'gestao',    rot:'Gestão',    abas:[['financeiro','Financeiro'],
-   ...MODULOS.filter(x=>x.id!=='contas').map(x=>[x.id, x.nome]), ['lixeira','Lixeira']]},
- {id:'matinal',   rot:'Matinal',   abas:[['matinal','Matinal']]},
-];
-const ABAS = GRUPOS.flatMap(g=>g.abas);
-const grupoDe = aba => GRUPOS.find(g=>g.abas.some(([id])=>id===aba)) || GRUPOS[0];
+/* O menu muda com o escopo, porque as perguntas são outras.
+   No Grupo: como está o conjunto, onde está o dinheiro, o que exige decisão.
+   Numa empresa: o funil dela, o time dela, a carteira dela.
+   Tela de grupo não aparece dentro de empresa, e vice-versa. */
+const GESTAO = () => [['financeiro','Financeiro'],
+  ...MODULOS.filter(x=>x.id!=='contas').map(x=>[x.id, x.nome]), ['lixeira','Lixeira']];
+
+const gruposDoEscopo = () => EMP.id === 'grupo'
+ ? [
+   {id:'visao',   rot:'Visão do Grupo', abas:[['grupo','Visão do Grupo']]},
+   {id:'hoje',    rot:'Agenda',   abas:[['agenda','O que fazer'],['alertas','Alertas']]},
+   {id:'gestao',  rot:'Gestão',   abas:GESTAO()},
+   {id:'pessoas', rot:'Pessoas',  abas:[['pessoas','Time'],['reunioes','Reuniões']]},
+  ]
+ : [
+   {id:'comercial', rot:'Comercial', abas:[['resumo','Resumo'],['quentes','Quentes'],
+     ['leitura','Leitura'],['atividades','Atividades'],['carteira','Carteira'],['resultado','Resultado']]},
+   {id:'hoje',      rot:'Agenda',   abas:[['agenda','O que fazer'],['alertas','Alertas']]},
+   {id:'pessoas',   rot:'Pessoas',  abas:[['pessoas','Time'],['reunioes','Reuniões']]},
+   {id:'gestao',    rot:'Gestão',   abas:GESTAO()},
+   {id:'matinal',   rot:'Matinal',  abas:[['matinal','Matinal']]},
+  ];
+const ABAS = () => gruposDoEscopo().flatMap(g=>g.abas);
+const grupoDe = aba => gruposDoEscopo().find(g=>g.abas.some(([id])=>id===aba))
+  || gruposDoEscopo()[0];
 let atual = 'grupo';
 const nav = document.getElementById('nav');
 const subnav = document.getElementById('subnav');
-GRUPOS.forEach(g=>{
- const b = document.createElement('button');
- b.dataset.rot = g.rot; b.textContent = g.rot; b.dataset.g = g.id;
- b.onclick = () => { atual = g.abas[0][0]; render(); window.scrollTo({top:0}); };
- nav.append(b);
-});
 
 function render(){
+ const GR = gruposDoEscopo();
+ /* se a aba atual não existe neste escopo, vai para a primeira do escopo */
+ if(!GR.some(x=>x.abas.some(([id])=>id===atual))) atual = GR[0].abas[0][0];
  const g = grupoDe(atual);
  const venc = pendencias().filter(x=>x.quando && x.quando <= HOJE).length;
  const CONT = {hoje: venc + nCriticos(), comercial: V.temperaturas.quente,
    gestao: MODULOS.reduce((a,mo)=>a+regs(mo.id).filter(r=>atrasado(mo,r)).length,0)};
- [...nav.children].forEach(b => {
-  b.classList.toggle('on', b.dataset.g===g.id);
-  const n = CONT[b.dataset.g];
-  b.innerHTML = b.dataset.rot + (n ? '<span class="bdg">'+n+'</span>' : '');
+ nav.innerHTML = '';
+ GR.forEach(gr=>{
+  const b = document.createElement('button');
+  const n = CONT[gr.id];
+  b.innerHTML = gr.rot + (n ? '<span class="bdg">'+n+'</span>' : '');
+  b.classList.toggle('on', gr.id===g.id);
+  b.onclick = () => { atual = gr.abas[0][0]; render(); window.scrollTo({top:0}); };
+  nav.append(b);
  });
  const lat = document.getElementById('lateral');
  if(lat){
   lat.innerHTML = '<div class="marca">BJ7 <span>Control</span></div>';
-  GRUPOS.forEach(gr=>{
+  GR.forEach(gr=>{
    const b = document.createElement('button');
    const n = CONT[gr.id];
    b.innerHTML = '<span>'+gr.rot+'</span>' + (n ? '<span class="bdg">'+n+'</span>' : '');
@@ -4408,7 +4422,7 @@ function render(){
  });
  const m = document.getElementById('main');
  m.innerHTML = '';
- const VIEWS = {grupo:viewGrupo, agenda:viewAgenda, resumo:viewResumo, quentes:viewQuentes, leitura:viewLeitura,
+ const VIEWS = {grupo: mm => EMP.id==='grupo' ? viewGrupo(mm) : viewResumo(mm), agenda:viewAgenda, resumo:viewResumo, quentes:viewQuentes, leitura:viewLeitura,
    resultado:viewResultado, atividades:viewAtividades, pessoas:viewPessoas,
    carteira:m=>viewUnidade(m, EMP.nome, EMP.funis), reunioes:viewReunioes,
    alertas:viewAlertas, matinal:viewMatinal};
