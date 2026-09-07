@@ -2588,6 +2588,264 @@ const MODULOS = [
 ];
 const modPor = id => MODULOS.find(m=>m.id===id);
 
+/* Financeiro do grupo.
+   O lançamento é único e nasce no grupo. Cada empresa vê a parte dela — a
+   inteira, quando é só dela, ou o rateio, quando o custo é compartilhado.
+   Assim não existem dois números: existe um lançamento e várias vistas.      */
+const OPERACOES = [
+ {id:'izi',     nome:'Izi Imóveis'},
+ {id:'paineis', nome:'BJ7 Painéis'},
+ {id:'stone',   nome:'Stone · BJ7 Consultoria'},
+ {id:'incorp',  nome:'Incorporação'},
+ {id:'casas',   nome:'Izi Casas'},
+ {id:'corp',    nome:'Corporativo'},
+];
+const opNome = id => (OPERACOES.find(o=>o.id===id)||{}).nome || id;
+/* as duas empresas que já existem no painel comercial mapeiam direto */
+const OP_DA_EMPRESA = {izi:'izi', paineis:'paineis'};
+
+const lancamentos = () => (dados.lancamentos || []);
+/* quanto deste lançamento pertence a uma operação */
+function parteDe(l, opId){
+ if(!opId) return +l.valor || 0;
+ const r = l.rateio || {};
+ if(Object.keys(r).length) return (+l.valor||0) * ((+r[opId]||0)/100);
+ return l.op === opId ? (+l.valor||0) : 0;
+}
+const somaRateio = l => Object.values(l.rateio||{}).reduce((a,b)=>a+(+b||0),0);
+const opAtual = () => OP_DA_EMPRESA[EMP.id] || null;   /* null = grupo */
+const lancDaVista = () => {
+ const op = opAtual();
+ return lancamentos().filter(l => !op || parteDe(l, op) !== 0);
+};
+const CATEGORIAS_FIN = ['Comissão','Salário e encargos','Aluguel','Marketing','Fornecedor',
+ 'Imposto','Software','Veículo','Manutenção','Pró-labore','Empréstimo','Outros'];
+
+function viewFinanceiro(m){
+ dados.lancamentos = dados.lancamentos || [];
+ const op = opAtual();
+ const L = lancDaVista();
+ const noPer = l => (l.competencia||'') >= PER.ini && (l.competencia||'') <= PER.fim;
+ const doPeriodo = L.filter(noPer);
+ const ent = doPeriodo.filter(l=>l.tipo==='entrada');
+ const sai = doPeriodo.filter(l=>l.tipo==='saida');
+ const somaE = ent.reduce((a,l)=>a+parteDe(l,op),0);
+ const somaS = sai.reduce((a,l)=>a+parteDe(l,op),0);
+ const aberto = L.filter(l=>!l.pagoEm);
+ const vencido = aberto.filter(l=>l.vencimento && l.vencimento < HOJE);
+
+ m.append(el('<p class="lede">'
+  + (op ? 'O que a <b>'+esc(EMP.nome)+'</b> tem no grupo. Cada valor vem de um lançamento único, '
+       +'feito uma vez — aqui você vê a parte que é desta empresa, inteira ou rateada.'
+      : 'Lançamentos do grupo. Um lançamento nasce aqui uma vez e aparece dentro de cada empresa '
+       +'na proporção que couber. Não existe digitar duas vezes.')
+  +'</p>'));
+
+ m.append(cartoes([
+  {b:MOEDA(somaE), s:'entrou no período'},
+  {b:MOEDA(somaS), s:'saiu no período'},
+  {b:MOEDA(somaE-somaS), s:'resultado do período'},
+  {b:MOEDA(vencido.reduce((a,l)=>a+parteDe(l,op),0)), s:'vencido e não pago'}]));
+
+ /* --- rateio do grupo entre as operações --- */
+ if(!op){
+  const porOp = OPERACOES.map(o=>({...o,
+    e: ent.reduce((a,l)=>a+parteDe(l,o.id),0),
+    s: sai.reduce((a,l)=>a+parteDe(l,o.id),0)}))
+   .filter(x=>x.e || x.s);
+  if(porOp.length){
+   m.append(el('<h2>Por operação</h2>'));
+   m.append(el('<p class="lede">O mesmo lançamento, distribuído. A soma das partes é o total do grupo.</p>'));
+   const max = Math.max(...porOp.map(x=>Math.max(x.e,x.s)), 1);
+   const bx = el('<div></div>');
+   porOp.forEach(x=>{
+    bx.append(el('<div style="margin-bottom:14px"><div class="hd"><span class="nm">'+esc(x.nome)+'</span>'
+     +'<span class="stat num'+(x.e-x.s<0?' warn':'')+'">'+MOEDA(x.e-x.s)+'</span></div>'
+     +'<div class="sub">entrou '+MOEDA(x.e)+' · saiu '+MOEDA(x.s)+'</div>'
+     +'<div class="bar"><i style="width:'+Math.max(x.e/max*100,1)+'%"></i></div>'
+     +'<div class="bar" style="margin-top:3px"><i class="dim" style="width:'
+     +Math.max(x.s/max*100,1)+'%"></i></div></div>'));
+   });
+   m.append(bx);
+  }
+ }
+
+ /* --- por categoria --- */
+ const cats = {};
+ sai.forEach(l=>{ const k=l.categoria||'Sem categoria';
+   cats[k]=(cats[k]||0)+parteDe(l,op); });
+ const cl = Object.entries(cats).sort((a,b)=>b[1]-a[1]);
+ if(cl.length){
+  m.append(el('<h2>Para onde vai o dinheiro</h2>'));
+  const max = cl[0][1] || 1;
+  const bx = el('<div></div>');
+  cl.forEach(([k,v])=>{
+   bx.append(el('<div style="margin-bottom:12px"><div class="hd"><span>'+esc(k)+'</span>'
+    +'<span class="stat num">'+MOEDA(v)+' · '+Math.round(v/(somaS||1)*100)+'%</span></div>'
+    +'<div class="bar"><i class="dim" style="width:'+Math.max(v/max*100,2)+'%"></i></div></div>'));
+  });
+  m.append(bx);
+ }
+
+ /* --- lançar --- */
+ if(op){
+  m.append(el('<div class="empty" style="margin-top:20px">Lançamentos são criados na visão '
+   +'<b>Grupo</b>, para que cada um exista uma vez só. Troque a empresa no topo para lançar.</div>'));
+ } else {
+  const add = el('<div class="addbar" style="margin-top:20px">'
+   +'<input class="search" placeholder="Do que se trata… e Enter" aria-label="Novo lançamento">'
+   +'<button class="btn">Lançar</button></div>');
+  const inp = add.querySelector('input');
+  const criar = () => {
+   const t = inp.value.trim(); if(!t) return;
+   dados.lancamentos.unshift({id:'l'+Date.now(), descricao:t, tipo:'saida', valor:0,
+     competencia:HOJE, vencimento:'', pagoEm:'', categoria:'', op:'corp', rateio:{},
+     criado:HOJE});
+   inp.value=''; salvar(); render();
+  };
+  inp.onkeydown = e => { if(e.key==='Enter') criar(); };
+  add.querySelector('button').onclick = criar;
+  m.append(add);
+ }
+
+ /* --- lista --- */
+ m.append(el('<h2>Lançamentos</h2>'));
+ let fSt = 'todos';
+ const segS = el('<div class="seg" style="margin-bottom:10px">'
+  +'<button class="on" data-s="todos">Todos</button>'
+  +'<button data-s="aberto">Em aberto</button>'
+  +'<button data-s="vencido">Vencidos</button></div>');
+ const busca = el('<input class="search" type="search" placeholder="Buscar…" style="margin-bottom:10px">');
+ const bx = el('<div></div>');
+ m.append(segS, busca, bx);
+
+ const pinta = () => {
+  segS.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.s===fSt));
+  bx.innerHTML='';
+  const termo = busca.value.toLowerCase();
+  const rows = L.filter(l => fSt==='todos' ? true : fSt==='aberto' ? !l.pagoEm
+      : (!l.pagoEm && l.vencimento && l.vencimento < HOJE))
+   .filter(l => !termo || ((l.descricao||'')+' '+(l.categoria||'')).toLowerCase().includes(termo))
+   .sort((a,b)=> (b.competencia||'').localeCompare(a.competencia||''));
+  if(!rows.length){ bx.append(el('<div class="empty">Nenhum lançamento aqui.</div>')); return; }
+  const porMes = {};
+  rows.forEach(l=>{ const k=(l.competencia||'').slice(0,7)||'sem';
+    (porMes[k]=porMes[k]||[]).push(l); });
+  Object.keys(porMes).sort().reverse().forEach(k=>{
+   const itens = porMes[k];
+   const saldo = itens.reduce((a,l)=>a + (l.tipo==='entrada'?1:-1)*parteDe(l,op), 0);
+   bx.append(el('<div class="grp">'+(k==='sem'?'Sem competência'
+     :(MES_LONGO[k.slice(5)]||'')+' de '+k.slice(0,4))
+     +'<span>'+itens.length+' · '+MOEDA(saldo)+'</span></div>'));
+   itens.forEach(l=>{
+    const parte = parteDe(l, op);
+    const rat = Object.keys(l.rateio||{}).length;
+    const atras = !l.pagoEm && l.vencimento && l.vencimento < HOJE;
+    linha(bx,
+     '<div class="hd"><span class="nm">'+esc(l.descricao||'sem descrição')+'</span>'
+      +'<span class="stat num'+(l.tipo==='entrada'?'':' warn')+'">'
+      +(l.tipo==='entrada'?'+':'−')+' '+MOEDA(Math.abs(parte))+'</span></div>'
+     +'<div class="sub">'+[
+        esc(l.categoria||'sem categoria'),
+        rat ? 'rateado' : opNome(l.op),
+        op && rat ? Math.round((l.rateio[op]||0))+'% desta empresa' : '',
+        l.pagoEm ? 'pago em '+dbr(l.pagoEm)
+          : (l.vencimento ? (atras? '<span class="warn">venceu em '+dbr(l.vencimento)+'</span>'
+              : 'vence em '+dbr(l.vencimento)) : 'sem vencimento')
+       ].filter(Boolean).join(' · ')+'</div>',
+     host => {
+      if(op){
+       host.append(el('<p class="lede" style="margin-top:12px">Este lançamento é do grupo. '
+        +'O valor cheio é '+MOEDA(l.valor)+' e '+MOEDA(parte)+' pertence a '+esc(EMP.nome)+'. '
+        +'Para editar, vá em Grupo.</p>'));
+       return;
+      }
+      editorLancamento(host, l);
+     });
+   });
+  });
+ };
+ segS.querySelectorAll('button').forEach(b=>b.onclick=()=>{ fSt=b.dataset.s; pinta(); });
+ busca.oninput = pinta;
+ pinta();
+}
+
+function editorLancamento(host, l){
+ const campo = (rot, tipo, chave, extra) => {
+  host.append(el('<label for="'+l.id+'-'+chave+'">'+rot+'</label>'));
+  let i;
+  if(tipo==='select'){
+   i = el('<select class="selmes" id="'+l.id+'-'+chave+'" style="max-width:280px"><option value=""></option>'
+    + extra.map(o=>'<option value="'+esc(o)+'">'+esc(o)+'</option>').join('') + '</select>');
+  } else i = el('<input type="'+tipo+'" class="search" id="'+l.id+'-'+chave+'"'
+    + (tipo==='number'? ' step="0.01" inputmode="decimal" style="max-width:200px"'
+      : tipo==='date'? ' style="max-width:190px"' : '') + '>');
+  i.value = l[chave] ?? '';
+  i[(tipo==='select'||tipo==='date')?'onchange':'oninput'] = () => {
+   l[chave] = tipo==='number' ? +i.value : i.value; salvar(); };
+  host.append(i);
+ };
+ host.append(el('<label>Entrada ou saída</label>'));
+ const segT = el('<div class="seg"><button data-t="entrada">Entrada</button>'
+  +'<button data-t="saida">Saída</button></div>');
+ segT.querySelectorAll('button').forEach(b=>{
+  b.classList.toggle('on', b.dataset.t===l.tipo);
+  b.onclick = () => { l.tipo = b.dataset.t; salvar(); render(); };
+ });
+ host.append(segT);
+ campo('Descrição','text','descricao');
+ campo('Valor cheio','number','valor');
+ campo('Competência, o mês a que pertence','date','competencia');
+ campo('Vencimento','date','vencimento');
+ campo('Pago em, deixe vazio se ainda não pagou','date','pagoEm');
+ campo('Categoria','select','categoria', CATEGORIAS_FIN);
+
+ host.append(el('<h4 class="sec" style="margin-top:16px">De quem é</h4>'));
+ host.append(el('<p class="mini">Se é de uma operação só, escolha ela. Se é custo compartilhado, '
+  +'use o rateio abaixo — a soma precisa dar 100%.</p>'));
+ const segO = el('<div class="seg" style="flex-wrap:wrap">'
+  + OPERACOES.map(o=>'<button data-o="'+o.id+'">'+esc(o.nome)+'</button>').join('') + '</div>');
+ segO.querySelectorAll('button').forEach(b=>{
+  b.classList.toggle('on', b.dataset.o===l.op && !Object.keys(l.rateio||{}).length);
+  b.onclick = () => { l.op = b.dataset.o; l.rateio = {}; salvar(); render(); };
+ });
+ host.append(segO);
+
+ host.append(el('<h4 class="sec">Rateio</h4>'));
+ const rx = el('<div></div>');
+ OPERACOES.forEach(o=>{
+  const row = el('<div class="conv" style="grid-template-columns:1fr 90px">'
+   +'<span class="nm">'+esc(o.nome)+'</span>'
+   +'<input type="number" min="0" max="100" class="search" style="max-width:84px" '
+   +'aria-label="Percentual de '+esc(o.nome)+'"></div>');
+  const i = row.querySelector('input');
+  i.value = (l.rateio||{})[o.id] || '';
+  i.oninput = () => {
+   l.rateio = l.rateio || {};
+   if(+i.value) l.rateio[o.id] = +i.value; else delete l.rateio[o.id];
+   salvar(); aviso();
+  };
+  rx.append(row);
+ });
+ const av = el('<p class="mini" style="margin-top:8px"></p>');
+ const aviso = () => {
+  const t = somaRateio(l);
+  av.className = 'mini' + (t && t !== 100 ? ' warn' : '');
+  av.textContent = !t ? 'Sem rateio: o lançamento inteiro é de ' + opNome(l.op)
+    : t === 100 ? 'Rateio fechado em 100%.'
+    : 'O rateio soma ' + t + '%. Enquanto não fechar 100%, as partes não batem com o total.';
+ };
+ aviso();
+ host.append(rx, av);
+
+ const ac = el('<div class="actions"><button class="btn ghost sm" data-del>Apagar</button></div>');
+ ac.querySelector('[data-del]').onclick = () => {
+  paraLixeira('lancamentos', l, l.descricao || 'sem descrição');
+  dados.lancamentos = dados.lancamentos.filter(z=>z.id!==l.id); salvar(); render();
+ };
+ host.append(ac);
+}
+
 /* Apagar é definitivo demais para contas e processos. Vai para a lixeira e
    pode voltar por 30 dias; depois disso some de vez, sozinho. */
 const DIAS_LIXEIRA = 30;
@@ -2600,7 +2858,9 @@ function limparLixeira(){
  dados.lixeira = (dados.lixeira||[]).filter(x => dif(x.quando, HOJE) <= DIAS_LIXEIRA);
 }
 function restaurar(l){
- if(l.tipo==='reuniao'){ dados.reunioes = dados.reunioes||[]; dados.reunioes.unshift(l.item); }
+ if(l.tipo==='lancamentos'){ dados.lancamentos = dados.lancamentos||[];
+        dados.lancamentos.unshift(l.item); }
+ else if(l.tipo==='reuniao'){ dados.reunioes = dados.reunioes||[]; dados.reunioes.unshift(l.item); }
  else if(l.tipo==='objetivo'){ dados.okrs = dados.okrs||[]; dados.okrs.push(l.item); }
  else { dados.registros = dados.registros||{};
         dados.registros[l.tipo] = dados.registros[l.tipo]||[];
@@ -3006,6 +3266,7 @@ function viewLixeira(m){
   +'Passado esse prazo some sozinho. Vale para registros de gestão, reuniões e objetivos.</p>'));
  if(!L.length){ m.append(el('<div class="empty">Nada apagado recentemente.</div>')); return; }
  const nome = t => t==='reuniao' ? 'Reunião' : t==='objetivo' ? 'Objetivo'
+   : t==='lancamentos' ? 'Lançamento'
    : (modPor(t)||{}).nome || t;
  L.forEach(l=>{
   const restam = DIAS_LIXEIRA - dif(l.quando, HOJE);
@@ -3608,6 +3869,7 @@ let tmr;
 function salvar(){
  clearTimeout(tmr);
  tmr = setTimeout(async () => {
+  if(COMPARTILHADO) return salvarNoServidor();
   /* O aviso "Salvo" só existe na Matinal, mas a gravação vale para todas as abas:
      PDI, alertas, reuniões, registros e pontos também passam por aqui. */
   const s = document.getElementById('saved');
@@ -3618,6 +3880,40 @@ function salvar(){
   setTimeout(()=>{ if(s) s.textContent=''; }, 2000);
  }, 600);
 }
+async function salvarNoServidor(){
+ const s = document.getElementById('saved');
+ try {
+  const r = await fetch('/estado', {method:'PUT', headers:{'content-type':'application/json'},
+    body: JSON.stringify({rev: REV, dados})});
+  if(r.status === 409){
+   const j = await r.json();
+   REV = j.rev;
+   avisarConflito(j);
+   return;
+  }
+  const j = await r.json();
+  REV = j.rev;
+  if(s) s.textContent = 'Salvo para todos';
+  setTimeout(()=>{ if(s) s.textContent=''; }, 2000);
+ } catch(e){
+  if(s) s.textContent = 'Não consegui salvar';
+  else avisarFalhaAoSalvar();
+ }
+}
+
+function avisarConflito(j){
+ const n = el('<div class="mask"><div class="modal" role="dialog" aria-modal="true">'
+  +'<h3>Outra pessoa salvou antes</h3>'
+  +'<p class="lede">Alguém alterou os dados enquanto você editava'
+  + (j.por? ' ('+esc(j.por)+')' : '') + '. Para não apagar o trabalho dela, '
+  +'nada foi gravado. Recarregue para ver a versão dela e refaça sua alteração.</p>'
+  +'<div class="actions"><button class="btn" data-r>Recarregar</button>'
+  +'<button class="btn ghost" data-x>Depois</button></div></div></div>');
+ n.querySelector('[data-r]').onclick = () => location.reload();
+ n.querySelector('[data-x]').onclick = () => n.remove();
+ document.body.append(n);
+}
+
 let jaAvisou = false;
 function avisarFalhaAoSalvar(){
  if(jaAvisou) return; jaAvisou = true;
@@ -3843,7 +4139,8 @@ const GRUPOS = [
  {id:'comercial', rot:'Comercial', abas:[['resumo','Resumo'],['quentes','Quentes'],
    ['leitura','Leitura'],['atividades','Atividades'],['carteira','Carteira'],['resultado','Resultado']]},
  {id:'pessoas',   rot:'Pessoas',   abas:[['pessoas','Time'],['reunioes','Reuniões']]},
- {id:'gestao',    rot:'Gestão',    abas:[...MODULOS.map(x=>[x.id, x.nome]), ['lixeira','Lixeira']]},
+ {id:'gestao',    rot:'Gestão',    abas:[['financeiro','Financeiro'],
+   ...MODULOS.filter(x=>x.id!=='contas').map(x=>[x.id, x.nome]), ['lixeira','Lixeira']]},
  {id:'matinal',   rot:'Matinal',   abas:[['matinal','Matinal']]},
 ];
 const ABAS = GRUPOS.flatMap(g=>g.abas);
@@ -3888,6 +4185,7 @@ function render(){
    alertas:viewAlertas, matinal:viewMatinal};
  MODULOS.forEach(x=> VIEWS[x.id] = mm => viewModulo(mm, x.id));
  VIEWS.tarefas = viewTarefas;
+ VIEWS.financeiro = viewFinanceiro;
  VIEWS.lixeira = viewLixeira;
  try {
   (VIEWS[atual] || viewResumo)(m);
@@ -3925,9 +4223,26 @@ document.getElementById('cobertura').innerHTML =
  +'<div class="cl"><span>Valores</span> em reais ficam fora de todo o painel: o campo valor do Pipedrive '
  +'está inconsistente e não é confiável</div>';
 
+/* Onde o que as pessoas escrevem fica guardado.
+   Servido pelo Worker: vai para o servidor, e todo mundo vê o mesmo.
+   Aberto como arquivo: cai no armazenamento do navegador, só para quem abriu. */
+let REV = null, COMPARTILHADO = false;
+async function carregarEstado(){
+ try {
+  const r = await fetch('/estado', {headers:{'accept':'application/json'}});
+  if((r.headers.get('content-type')||'').includes('json')){
+   const j = await r.json();
+   COMPARTILHADO = true; REV = j.rev;
+   return j.dados || {};
+  }
+ } catch(e){ /* segue para o navegador */ }
+ try { const r = await window.storage.get('matinal:campos');
+       return r && r.value ? JSON.parse(r.value) : {}; }
+ catch(e){ return {}; }
+}
+
 (async () => {
- try { const r = await window.storage.get('matinal:campos'); if(r) dados = JSON.parse(r.value); }
- catch(e) { dados = {}; }
+ dados = await carregarEstado();
  trocarEmpresa = montarEmpresas();
  montarPeriodo();
  trocarEmpresa(EMP.id);
