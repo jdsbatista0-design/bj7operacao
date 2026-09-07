@@ -250,6 +250,21 @@ button.lnk:active{color:var(--teal)}
 .cl.mais::before{content:"+";position:absolute;margin-left:-14px;color:var(--faint)}
 .cl.tot{border-bottom:0;background:#FAFBF9;font-weight:500;color:var(--ink);border-top:1px solid var(--rule2)}
 .cl.tot span{color:var(--teal)}
+.tarefa{display:flex;gap:10px;align-items:stretch;margin-bottom:7px}
+.tarefa.feito{opacity:.45}
+.tarefa.feito .tt{text-decoration:line-through}
+.tarefa .chk{width:44px;flex:none;border:1px solid var(--rule);background:var(--card);
+ border-radius:9px;cursor:pointer;font-size:17px;color:var(--teal);line-height:1}
+.tarefa.feito .chk{border-color:var(--teal);background:var(--teal-bg)}
+.tcorpo{flex:1;min-width:0;display:grid;grid-template-columns:4px 1fr;gap:0 11px;
+ align-items:center;text-align:left;background:var(--card);border:1px solid var(--rule);
+ border-radius:9px;padding:11px 13px;cursor:pointer;font:inherit}
+.tcorpo:hover{border-color:var(--rule2)}
+.prio{grid-row:1/3;width:4px;height:100%;min-height:30px;border-radius:2px;background:var(--faint)}
+.p-alta{background:var(--clay)} .p-media{background:var(--ochre)} .p-baixa{background:var(--rule2)}
+.tcorpo .tt{font-size:15px;color:var(--ink);line-height:1.3}
+.tcorpo .tsub{font-size:12.5px;color:var(--soft);margin-top:3px}
+.grp.urg{color:var(--clay);border-bottom-color:var(--clay)}
 .addbar{display:flex;gap:8px;margin-top:18px}
 .addbar .search{flex:1}
 .item{display:flex;gap:10px;align-items:stretch;margin-bottom:8px}
@@ -2500,6 +2515,144 @@ const AGRUPAR = {
 const MES_LONGO = {'01':'Janeiro','02':'Fevereiro','03':'Março','04':'Abril','05':'Maio','06':'Junho',
  '07':'Julho','08':'Agosto','09':'Setembro','10':'Outubro','11':'Novembro','12':'Dezembro'};
 
+/* Tarefa não é registro de cadastro: é fila de trabalho. Por isso ela tem tela
+   própria, organizada por urgência — que é como a pessoa realmente decide o que
+   fazer agora — e não por campo de banco. */
+function viewTarefas(m){
+ dados.registros = dados.registros || {};
+ dados.registros.tarefas = dados.registros.tarefas || [];
+ const mod = modPor('tarefas');
+ const todas = regs('tarefas');
+ const abertas = todas.filter(r=>emAberto(mod,r));
+ const feitas = todas.filter(r=>!emAberto(mod,r));
+
+ const daSemana = r => r.prazo && r.prazo > HOJE && dif(HOJE, r.prazo) <= 7;
+ const grupos = [
+  ['Atrasadas',   r => r.prazo && r.prazo < HOJE,  true],
+  ['Para hoje',   r => r.prazo === HOJE,           true],
+  ['Esta semana', daSemana,                        false],
+  ['Depois',      r => r.prazo && dif(HOJE, r.prazo) > 7, false],
+  ['Sem prazo',   r => !r.prazo,                   false],
+ ];
+
+ let fQuem = '', fSt = 'abertas';
+
+ m.append(el('<p class="lede">A fila do dia, organizada por urgência. Toque no quadrado para concluir, '
+  +'no texto para abrir. Escreva e aperte Enter para criar.</p>'));
+
+ const kp = el('<div></div>'); m.append(kp);
+ const criar = texto => {
+  const novo = {id:'x'+Date.now(), emp: EMP.id==='grupo'?'grupo':EMP.id, criado:HOJE,
+    prioridade:'média', status:'aberta'};
+  if(texto) novo.titulo = texto;
+  if(fQuem && fQuem!=='sem') novo.responsavel = fQuem;
+  dados.registros.tarefas.unshift(novo); salvar();
+  return novo;
+ };
+ const add = el('<div class="addbar" style="margin-top:16px">'
+  +'<input class="search" placeholder="O que precisa ser feito… e Enter" aria-label="Nova tarefa">'
+  +'<button class="btn">Criar</button></div>');
+ const inp = add.querySelector('input');
+ const fazer = () => { const t = inp.value.trim(); if(!t && !confirm('Criar tarefa sem título?')) return;
+   criar(t); inp.value=''; render(); };
+ inp.onkeydown = e => { if(e.key==='Enter') fazer(); };
+ add.querySelector('button').onclick = fazer;
+ m.append(add);
+
+ const donos = [...new Set(abertas.map(r=>r.responsavel).filter(Boolean))].sort();
+ const chips = el('<div class="seg" style="flex-wrap:wrap;margin:14px 0 8px">'
+  +'<button class="on" data-q="">Todas</button>'
+  + donos.map(n=>'<button data-q="'+esc(n)+'">'+esc(n)+'</button>').join('')
+  + (abertas.some(r=>!r.responsavel) ? '<button data-q="sem">Sem dono</button>' : '')
+  +'</div>');
+ const segS = el('<div class="seg" style="margin-bottom:12px">'
+  +'<button class="on" data-s="abertas">Em aberto</button>'
+  +'<button data-s="feitas">Concluídas</button></div>');
+ const bx = el('<div></div>');
+ m.append(chips, segS, bx);
+
+ const PRIO = {'alta':'p-alta','média':'p-media','baixa':'p-baixa'};
+
+ const pinta = () => {
+  chips.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.q===fQuem));
+  segS.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.s===fSt));
+  const filtro = r => !fQuem ? true : fQuem==='sem' ? !r.responsavel : r.responsavel===fQuem;
+  const base = (fSt==='abertas' ? abertas : feitas).filter(filtro);
+
+  kp.innerHTML='';
+  kp.append(cartoes([
+   {b:base.filter(r=>r.prazo && r.prazo < HOJE && emAberto(mod,r)).length, s:'atrasadas'},
+   {b:base.filter(r=>r.prazo===HOJE && emAberto(mod,r)).length, s:'para hoje'},
+   {b:base.filter(daSemana).length, s:'nos próximos 7 dias'},
+   {b:base.filter(r=>!r.prazo && emAberto(mod,r)).length, s:'sem prazo definido'}]));
+
+  bx.innerHTML='';
+  if(fSt==='feitas'){
+   if(!base.length){ bx.append(el('<div class="empty">Nenhuma tarefa concluída ainda.</div>')); return; }
+   base.sort((a,b)=>(b.prazo||'').localeCompare(a.prazo||'')).forEach(r=>item(bx,r));
+   return;
+  }
+  let mostrou = 0;
+  grupos.forEach(([rot, cond, urgente])=>{
+   const l = base.filter(cond).sort((a,b)=>{
+    const pr = {'alta':0,'média':1,'baixa':2};
+    return (pr[a.prioridade]??1)-(pr[b.prioridade]??1)
+        || (a.prazo||'9999').localeCompare(b.prazo||'9999');
+   });
+   if(!l.length) return;
+   mostrou += l.length;
+   bx.append(el('<div class="grp'+(urgente?' urg':'')+'">'+rot+'<span>'+l.length+'</span></div>'));
+   l.forEach(r=>item(bx,r));
+  });
+  if(!mostrou) bx.append(el('<div class="empty">Nada em aberto'
+   +(fQuem? ' para '+(fQuem==='sem'?'tarefas sem dono':esc(fQuem)) : '')
+   +'. Escreva acima e aperte Enter.</div>'));
+ };
+
+ function item(host, r){
+  const feito = !emAberto(mod,r), atr = r.prazo && r.prazo < HOJE && !feito;
+  const cx = el('<div class="tarefa'+(feito?' feito':'')+'"></div>');
+  const chk = el('<button class="chk" title="Concluir">'+(feito?'✓':'')+'</button>');
+  chk.onclick = e => { e.stopPropagation();
+   r.status = feito ? 'aberta' : 'concluida'; salvar(); render(); };
+  const corpo = el('<button class="tcorpo">'
+   +'<span class="prio '+(PRIO[r.prioridade]||'p-media')+'"></span>'
+   +'<span class="tt">'+(r.titulo? esc(r.titulo) : '<i class="mini">sem título</i>')+'</span>'
+   +'<span class="tsub">'+[
+      r.responsavel ? esc(r.responsavel) : '<span class="warn">sem dono</span>',
+      r.prazo ? (atr? '<span class="warn">'+dbr(r.prazo)+' · '+dif(r.prazo,HOJE)+'d atrasada</span>'
+                    : dbr(r.prazo)) : 'sem prazo',
+      r.prioridade==='alta' ? '<span class="warn">alta</span>' : ''
+     ].filter(Boolean).join(' · ')+'</span></button>');
+  cx.append(chk, corpo);
+  host.append(cx);
+  corpo.onclick = () => {
+   const jaAberto = cx.nextElementSibling && cx.nextElementSibling.classList.contains('panel');
+   host.querySelectorAll('.panel').forEach(x=>x.remove());
+   if(jaAberto) return;
+   const p = el('<div class="panel"></div>');
+   cx.after(p);
+   mod.campos.forEach(c=> campoInput(r, c, salvar, p));
+   const ac = el('<div class="actions">'
+     +'<button class="btn ghost sm" data-hoje>Para hoje</button>'
+     +'<button class="btn ghost sm" data-sem>Semana que vem</button>'
+     +'<button class="btn ghost sm" data-del>Apagar</button></div>');
+   ac.querySelector('[data-hoje]').onclick = () => { r.prazo = HOJE; salvar(); render(); };
+   ac.querySelector('[data-sem]').onclick = () => {
+    const d = new Date(HOJE+'T12:00:00'); d.setDate(d.getDate()+7);
+    r.prazo = d.toISOString().slice(0,10); salvar(); render(); };
+   ac.querySelector('[data-del]').onclick = () => {
+    paraLixeira('tarefas', r, r.titulo || 'sem título');
+    dados.registros.tarefas = dados.registros.tarefas.filter(z=>z.id!==r.id); salvar(); render(); };
+   p.append(ac);
+  };
+ }
+
+ chips.querySelectorAll('button').forEach(b=>b.onclick=()=>{ fQuem=b.dataset.q; pinta(); });
+ segS.querySelectorAll('button').forEach(b=>b.onclick=()=>{ fSt=b.dataset.s; pinta(); });
+ pinta();
+}
+
 function viewModulo(m, mid){
  dados.registros = dados.registros || {};
  dados.registros[mid] = dados.registros[mid] || [];
@@ -3517,6 +3670,7 @@ function render(){
    carteira:m=>viewUnidade(m, EMP.nome, EMP.funis), reunioes:viewReunioes,
    alertas:viewAlertas, matinal:viewMatinal};
  MODULOS.forEach(x=> VIEWS[x.id] = mm => viewModulo(mm, x.id));
+ VIEWS.tarefas = viewTarefas;
  VIEWS.lixeira = viewLixeira;
  try {
   (VIEWS[atual] || viewResumo)(m);
