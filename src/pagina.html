@@ -335,6 +335,14 @@ h2 .mini{font-weight:400;font-size:12px;color:var(--faint);margin-left:8px;lette
 .issue .pri{width:34px;flex:none;background:none;border:0;font-size:17px;cursor:pointer;
  color:var(--ochre);line-height:1.2}
 .issue .ic{flex:1;min-width:0}
+.and{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.and .q{font-size:11.5px;color:var(--faint);min-width:74px;font-variant-numeric:tabular-nums}
+.and .search{flex:1}
+.previa{min-height:22px;margin-top:8px;font-size:13.5px;color:var(--soft);
+ display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.previa b{color:var(--ink);font-weight:600}
+.previa .ok{color:var(--teal);font-weight:600}
+.previa .btn{margin-left:4px}
 .tarefa{display:flex;gap:10px;align-items:stretch;margin-bottom:7px}
 .tarefa.feito{opacity:.45}
 .tarefa.feito .tt{text-decoration:line-through}
@@ -2603,6 +2611,8 @@ const MODULOS = [
    {k:'prioridade', r:'Prioridade', t:'select', op:['alta','média','baixa'], padrao:'média'},
    {k:'prazo', r:'Prazo', t:'data'},
    {k:'status', r:'Situação', t:'select', op:['aberta','fazendo','concluida','cancelada'], padrao:'aberta'},
+   {k:'recorrencia', r:'Repete', t:'select', op:['não repete','diária','semanal','quinzenal','mensal'],
+    padrao:'não repete'},
    {k:'obs', r:'Detalhes', t:'longo'},
   ]},
  {id:'contas', nome:'Contas a pagar', unidade:'contas',
@@ -3012,6 +3022,96 @@ const MES_LONGO = {'01':'Janeiro','02':'Fevereiro','03':'Março','04':'Abril','0
 /* Tarefa não é registro de cadastro: é fila de trabalho. Por isso ela tem tela
    própria, organizada por urgência — que é como a pessoa realmente decide o que
    fazer agora — e não por campo de banco. */
+/* Entende a frase inteira: "ligar pro cartório amanhã Nicolas alta" já sai com
+   prazo, dono e prioridade. Digitar uma linha tem que bastar — abrir formulário
+   para três campos é o que faz ninguém cadastrar tarefa nenhuma. */
+const DIAS_SEMANA = {domingo:0, segunda:1, terca:2, terça:2, quarta:3, quinta:4,
+  sexta:5, sabado:6, sábado:6};
+function somaDias(n){
+ const d = new Date(HOJE+'T12:00:00'); d.setDate(d.getDate()+n);
+ return d.toISOString().slice(0,10);
+}
+function proximoDiaDaSemana(alvo){
+ const hoje = new Date(HOJE+'T12:00:00').getDay();
+ let delta = (alvo - hoje + 7) % 7;
+ if(delta === 0) delta = 7;
+ return somaDias(delta);
+}
+function interpretar(txt){
+ let t = ' ' + txt + ' ';
+ const achou = {};
+ const tira = re => { t = t.replace(re, ' '); };
+ const sem = x => x.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+
+ /* prazo */
+ const regras = [
+  [/\bhoje\b/i,                 () => HOJE],
+  [/\bdepois de amanh[ãa]/i,    () => somaDias(2)],
+  [/\bamanh[ãa]/i,              () => somaDias(1)],
+  [/\bem (\d{1,2}) dias?\b/i,   m => somaDias(+m[1])],
+  [/\b(semana que vem|pr[óo]xima semana)/i, () => somaDias(7)],
+  [/\bfim do m[êe]s/i, () => new Date(+HOJE.slice(0,4), +HOJE.slice(5,7), 0)
+      .toISOString().slice(0,10)],
+  [/(?:\b(?:n[oa] )?dia )?\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/, m => {
+     const ano = m[3] ? (m[3].length===2 ? '20'+m[3] : m[3]) : HOJE.slice(0,4);
+     const d = ano+'-'+String(+m[2]).padStart(2,'0')+'-'+String(+m[1]).padStart(2,'0');
+     return d < HOJE && !m[3] ? (+ano+1)+d.slice(4) : d; }],
+ ];
+ for(const [re, fn] of regras){
+  const m = t.match(re);
+  if(m){ achou.prazo = fn(m); tira(re); break; }
+ }
+ if(!achou.prazo){
+  /* dia da semana: compara sem acento, mas remove do texto original */
+  const palavras = t.split(/\s+/);
+  for(let i=0;i<palavras.length;i++){
+   const limpa = sem(palavras[i]).replace(/-feira$/,'');
+   if(DIAS_SEMANA[limpa] !== undefined){
+    achou.prazo = proximoDiaDaSemana(DIAS_SEMANA[limpa]);
+    palavras[i] = ''; 
+    if(i>0 && /^(na|a|essa|esta|proxima|próxima)$/i.test(sem(palavras[i-1]))) palavras[i-1]='';
+    t = palavras.join(' ');
+    break;
+   }
+  }
+ }
+
+ /* prioridade */
+ if(/\b(urgente|alta prioridade|prioridade alta|!alta|alta)\b/i.test(t)){
+  achou.prioridade = 'alta'; tira(/\b(urgente|alta prioridade|prioridade alta|!alta|alta)\b/i);
+ } else if(/\b(baixa prioridade|prioridade baixa|!baixa|baixa)\b/i.test(t)){
+  achou.prioridade = 'baixa'; tira(/\b(baixa prioridade|prioridade baixa|!baixa|baixa)\b/i);
+ }
+
+ /* dono */
+ for(const n of NOMES){
+  const re = new RegExp('(?:@)?\\b'+n.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','i');
+  if(re.test(t)){ achou.responsavel = n; tira(re); break; }
+ }
+
+ /* sobras que só faziam sentido junto do que já foi extraído */
+ t = t.replace(/(^|\s)[àa]s(\s|$)/gi, '$1$2');
+ achou.titulo = t.replace(/\s+/g,' ').replace(/^[\s,;.:-]+|[\s,;.:-]+$/g,'');
+ if(!achou.titulo) achou.titulo = txt.trim();
+ return achou;
+}
+
+/* Tarefa que repete não deve ser recriada na mão toda semana: ao concluir,
+   a próxima já nasce com o prazo empurrado. É o que mantém rotina viva. */
+const PASSO_REC = {'diária':1, 'semanal':7, 'quinzenal':14, 'mensal':30};
+function concluirTarefa(r){
+ r.status = 'concluida';
+ r.concluidaEm = HOJE;
+ const passo = PASSO_REC[r.recorrencia];
+ if(passo && r.prazo){
+  const base = r.prazo > HOJE ? r.prazo : HOJE;
+  const d = new Date(base+'T12:00:00');
+  if(r.recorrencia === 'mensal') d.setMonth(d.getMonth()+1); else d.setDate(d.getDate()+passo);
+  dados.registros.tarefas.unshift({...r, id:'x'+Date.now(), status:'aberta',
+    concluidaEm:'', andamento:[], criado:HOJE, prazo:d.toISOString().slice(0,10)});
+ }
+}
+
 function viewTarefas(m){
  dados.registros = dados.registros || {};
  dados.registros.tarefas = dados.registros.tarefas || [];
@@ -3036,22 +3136,59 @@ function viewTarefas(m){
 
  const kp = el('<div></div>'); m.append(kp);
  const criar = texto => {
+  const p = interpretar(texto || '');
   const novo = {id:'x'+Date.now(), emp: EMP.id==='grupo'?'grupo':EMP.id, criado:HOJE,
-    prioridade:'média', status:'aberta'};
-  if(texto) novo.titulo = texto;
-  if(fQuem && fQuem!=='sem') novo.responsavel = fQuem;
+    titulo: p.titulo || texto || '',
+    prioridade: p.prioridade || 'média',
+    prazo: p.prazo || '',
+    responsavel: p.responsavel || (fQuem && fQuem!=='sem' ? fQuem : ''),
+    status:'aberta'};
   dados.registros.tarefas.unshift(novo); salvar();
   return novo;
  };
  const add = el('<div class="addbar" style="margin-top:16px">'
-  +'<input class="search" placeholder="O que precisa ser feito… e Enter" aria-label="Nova tarefa">'
-  +'<button class="btn">Criar</button></div>');
+  +'<input class="search" placeholder="Ex: ligar pro cartório amanhã Nicolas urgente" '
+  +'aria-label="Nova tarefa"><button class="btn">Criar</button></div>');
+ const previa = el('<div class="previa"></div>');
  const inp = add.querySelector('input');
- const fazer = () => { const t = inp.value.trim(); if(!t && !confirm('Criar tarefa sem título?')) return;
-   criar(t); inp.value=''; render(); };
+ const mostraPrevia = () => {
+  const t = inp.value.trim();
+  if(!t){ previa.innerHTML=''; return; }
+  const p = interpretar(t);
+  const pecas = [];
+  if(p.prazo) pecas.push('<span class="tag t-teal">'+(p.prazo===HOJE?'hoje'
+    : p.prazo===somaDias(1)?'amanhã' : dbr(p.prazo))+'</span>');
+  if(p.responsavel) pecas.push('<span class="tag t-teal">'+esc(p.responsavel)+'</span>');
+  if(p.prioridade) pecas.push('<span class="tag '+(p.prioridade==='alta'?'t-clay':'t-gray')+'">'
+    +p.prioridade+'</span>');
+  previa.innerHTML = pecas.length
+   ? '<b>'+esc(p.titulo)+'</b> ' + pecas.join(' ')
+   : '<span class="mini">Escreva o prazo, o nome de quem faz e a prioridade na mesma frase '
+     +'— o painel separa sozinho.</span>';
+ };
+ const fazer = () => {
+  const t = inp.value.trim();
+  if(!t) return;
+  const novo = criar(t);
+  inp.value=''; previa.innerHTML='';
+  render();
+  const barra = document.querySelector('#main .previa');
+  if(barra){
+   barra.innerHTML = '<span class="ok">Criada:</span> <b>'+esc(novo.titulo)+'</b>'
+    + (novo.prazo? ' · '+dbr(novo.prazo) : ' · sem prazo')
+    + (novo.responsavel? ' · '+esc(novo.responsavel) : ' · sem dono')
+    + ' <button class="btn ghost sm" id="desfazer">Desfazer</button>';
+   const dz = barra.querySelector('#desfazer');
+   if(dz) dz.onclick = () => {
+    dados.registros.tarefas = dados.registros.tarefas.filter(z=>z.id!==novo.id);
+    salvar(); render();
+   };
+  }
+ };
+ inp.oninput = mostraPrevia;
  inp.onkeydown = e => { if(e.key==='Enter') fazer(); };
  add.querySelector('button').onclick = fazer;
- m.append(add);
+ m.append(add, previa);
 
  const donos = [...new Set(abertas.map(r=>r.responsavel).filter(Boolean))].sort();
  const chips = el('<div class="seg" style="flex-wrap:wrap;margin:14px 0 8px">'
@@ -3127,14 +3264,55 @@ function viewTarefas(m){
    const p = el('<div class="panel"></div>');
    cx.after(p);
    mod.campos.forEach(c=> campoInput(r, c, salvar, p));
-   const ac = el('<div class="actions">'
-     +'<button class="btn ghost sm" data-hoje>Para hoje</button>'
-     +'<button class="btn ghost sm" data-sem>Semana que vem</button>'
+   /* andamento: o que já foi feito, com data. Tarefa que arrasta sem histórico
+      vira discussão de memória na reunião. */
+   p.append(el('<h4 class="sec" style="margin-top:16px">Andamento</h4>'));
+   const ax = el('<div></div>'); p.append(ax);
+   const pintaAnd = () => {
+    ax.innerHTML='';
+    (r.andamento||[]).forEach((a,i)=>{
+     const li = el('<div class="and"><span class="q">'+dbr(a.q)+'</span>'
+      +'<input class="search" value=""><button class="btn ghost sm" data-x>×</button></div>');
+     const inp2 = li.querySelector('input'); inp2.value = a.t||'';
+     inp2.oninput = () => { a.t = inp2.value; salvar(); };
+     li.querySelector('[data-x]').onclick = () => { r.andamento.splice(i,1); salvar(); pintaAnd(); };
+     ax.append(li);
+    });
+    const novo = el('<div class="addbar" style="margin-top:6px">'
+     +'<input class="search" placeholder="O que avançou hoje… e Enter"></div>');
+    const ni = novo.querySelector('input');
+    ni.onkeydown = e => {
+     if(e.key!=='Enter' || !ni.value.trim()) return;
+     r.andamento = r.andamento || [];
+     r.andamento.push({q:HOJE, t:ni.value.trim()});
+     if(r.status==='aberta') r.status='fazendo';
+     ni.value=''; salvar(); pintaAnd();
+    };
+    ax.append(novo);
+   };
+   pintaAnd();
+
+   const ac = el('<div class="actions" style="flex-wrap:wrap">'
+     +'<button class="btn ghost sm" data-hoje>Hoje</button>'
+     +'<button class="btn ghost sm" data-am>Amanhã</button>'
+     +'<button class="btn ghost sm" data-sem>+1 semana</button>'
+     +'<button class="btn ghost sm" data-passa>Passar para…</button>'
      +'<button class="btn ghost sm" data-del>Apagar</button></div>');
    ac.querySelector('[data-hoje]').onclick = () => { r.prazo = HOJE; salvar(); render(); };
-   ac.querySelector('[data-sem]').onclick = () => {
-    const d = new Date(HOJE+'T12:00:00'); d.setDate(d.getDate()+7);
+   ac.querySelector('[data-am]').onclick = () => {
+    const d = new Date(HOJE+'T12:00:00'); d.setDate(d.getDate()+1);
     r.prazo = d.toISOString().slice(0,10); salvar(); render(); };
+   ac.querySelector('[data-sem]').onclick = () => {
+    const base = r.prazo && r.prazo > HOJE ? r.prazo : HOJE;
+    const d = new Date(base+'T12:00:00'); d.setDate(d.getDate()+7);
+    r.prazo = d.toISOString().slice(0,10); salvar(); render(); };
+   ac.querySelector('[data-passa]').onclick = () => {
+    const box = el('<div class="seg" style="flex-wrap:wrap;margin-top:8px">'
+     + NOMES.map(x=>'<button data-p="'+esc(x)+'">'+esc(x)+'</button>').join('') + '</div>');
+    box.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+     r.responsavel = b.dataset.p; salvar(); render(); });
+    ac.after(box);
+   };
    ac.querySelector('[data-del]').onclick = () => {
     paraLixeira('tarefas', r, r.titulo || 'sem título');
     dados.registros.tarefas = dados.registros.tarefas.filter(z=>z.id!==r.id); salvar(); render(); };
