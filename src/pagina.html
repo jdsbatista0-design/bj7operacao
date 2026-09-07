@@ -1092,121 +1092,255 @@ function diagnostico(n){
  return out;
 }
 
+function raioX(n){
+ const [si,sf] = semanaAtual(), [mi,mf] = mesAtual();
+ const p = V.pessoas[n], r = realDe(p);
+ const carteira = V.negocios.filter(x=>x.d===n);
+ const uns = (dados.reunioes||[]).filter(x=>x.tipo==='1a1' && (x.pessoas||[]).includes(n))
+   .sort((a,b)=> a.data < b.data ? 1 : -1);
+ const objs = objetivosDe(n).filter(o=>o.status!=='concluido' && (o.objetivo||'').trim());
+ const comp = (dados.reunioes||[]).flatMap(x=>(x.comp||[])
+   .filter(c=>!c.feito && c.quem===n));
+ return {
+  n, frente: frenteDe(n),
+  sem: pontosDe(n, si, sf), mes: pontosDe(n, mi, mf),
+  metaSem: metaPontos(n).semana||0, metaMes: metaPontos(n).mes||0,
+  ativ: p.total, real: r, tocados: p.tocados, dias: p.dias,
+  carteira: carteira.length,
+  quentes: carteira.filter(x=>x.temp==='quente').length,
+  semContato: carteira.filter(x=>!x.r0).length,
+  ganhos: D.resultado.filter(x=>noEscopo(x) && x.d===n && x.r==='ganho').length,
+  ultimo1a1: uns[0] ? uns[0].data : null,
+  desde1a1: uns[0] ? dif(uns[0].data, HOJE) : null,
+  objetivos: objs.length,
+  objAtrasados: objs.filter(o=>o.prazo && o.prazo < HOJE).length,
+  compAbertos: comp.length,
+  compAtrasados: comp.filter(c=>c.quando && c.quando < HOJE).length,
+ };
+}
+
 function viewPessoas(m){
- m.append(el('<p class="lede">A barra clara é tudo que foi registrado. A escura é contato real: ligação, '
-  +'visita, reunião e WhatsApp. Abaixo de cada pessoa, o que os números dizem e o plano combinado.</p>'));
- const maxA = Math.max(...NOMES.map(n=>V.pessoas[n].total), 1);
  dados.pdi = dados.pdi || {};
  const ativos = NOMES.filter(ativo), sairam = NOMES.filter(n=>!ativo(n));
- const cartao = n => {
-  const p = V.pessoas[n], r = realDe(p);
-  const tags = Object.entries(p.tipos).sort((a,b)=>b[1]-a[1])
-   .map(([k,v])=>'<span class="tag '+(REAL.includes(k)?'t-teal':'t-gray')+'">'+esc(k)+' '+v+'</span>').join('');
-  linha(m,
-   '<div class="hd"><span class="nm">'+n+'</span><span class="stat num">'+r+' de contato real em '+p.total+'</span></div>'
-   +'<div class="sub">'+frenteDe(n)+' — '+p.tocados+' negócios trabalhados, '+p.dias+' dias ativos</div>'
-   +'<div class="bar"><i class="dim" style="width:'+Math.max(p.total/maxA*100,.8)+'%"></i>'
-   +'<i style="width:'+Math.max(r/maxA*100,.6)+'%"></i></div>'
-   +'<div style="margin-top:11px">'+tags+'</div>',
-   host => {
-    host.append(el('<h4 class="sec" style="margin-top:14px">O que os números dizem</h4>'));
-    const dx = el('<div class="diag"></div>');
-    diagnostico(n).forEach(([txt,tipo])=> dx.append(el('<div class="di '+tipo+'">'+esc(txt)+'</div>')));
-    host.append(dx);
+ const X = ativos.map(raioX);
+ const [si,sf] = semanaAtual();
 
-    host.append(el('<h4 class="sec">Plano de desenvolvimento</h4>'));
-    dados.pdi[n] = dados.pdi[n] || {};
-    PDI.forEach(([k,rot])=>{
-     host.append(el('<label for="pdi-'+n+'-'+k+'">'+rot+'</label>'));
-     const ta = el('<textarea id="pdi-'+n+'-'+k+'" rows="2"></textarea>');
-     ta.value = dados.pdi[n][k] || '';
-     ta.oninput = () => { dados.pdi[n][k] = ta.value; salvar(); };
-     host.append(ta);
-    });
+ m.append(el('<p class="lede">O time de <b>'+esc(EMP.nome)+'</b> lado a lado. '
+  +'A semana corrente vai de '+dbr(si)+' a '+dbr(sf)+'. Toque numa pessoa para abrir o quadro dela.</p>'));
 
-    host.append(el('<h4 class="sec">Objetivos</h4>'));
-    host.append(el('<p class="mini">Objetivo com resultado medível e prazo. O progresso é você quem move.</p>'));
-    const okx = el('<div></div>'); host.append(okx);
-    const pintaOkr = () => {
-     okx.innerHTML='';
-     objetivosDe(n).forEach((o,i)=>{
-      const atras = o.prazo && o.prazo < HOJE && o.status!=='concluido';
-      const l = el('<div class="okr'+(o.status==='concluido'?' feito':'')+'">'
-       +'<input class="search oko" placeholder="Objetivo">'
-       +'<input class="search okk" placeholder="Como saber que foi atingido">'
-       +'<div class="okb"><input type="date" class="search okp" style="max-width:150px">'
-       +'<input type="range" min="0" max="100" step="10" class="okr-r">'
-       +'<span class="okv num"></span>'
-       +'<button class="btn ghost sm" data-del>Remover</button></div></div>');
-      const ob=l.querySelector('.oko'), kk=l.querySelector('.okk'), pz=l.querySelector('.okp'),
-            rg=l.querySelector('.okr-r'), vv=l.querySelector('.okv');
-      ob.value=o.objetivo||''; kk.value=o.kr||''; pz.value=o.prazo||''; rg.value=o.progresso||0;
-      const mostra = () => { vv.textContent = (o.progresso||0)+'%';
-        vv.className = 'okv num'+(atras?' warn':''); };
-      ob.oninput=()=>{o.objetivo=ob.value; salvar();};
-      kk.oninput=()=>{o.kr=kk.value; salvar();};
-      pz.onchange=()=>{o.prazo=pz.value; salvar(); pintaOkr();};
-      rg.oninput=()=>{o.progresso=+rg.value; o.status = +rg.value>=100?'concluido':'em_andamento';
-        mostra(); salvar();};
-      l.querySelector('[data-del]').onclick=()=>{
-        paraLixeira('objetivo', o, (o.objetivo||'sem título')+' — '+n);
-        dados.okrs = (dados.okrs||[]).filter(z=>z!==o); salvar(); pintaOkr();};
-      mostra(); okx.append(l);
-     });
-     const add = el('<button class="btn ghost sm" style="margin-top:8px">Adicionar objetivo</button>');
-     add.onclick = () => { dados.okrs = dados.okrs||[];
-       dados.okrs.push({id:'o'+Date.now(), quem:n, objetivo:'', kr:'', prazo:'',
-         progresso:0, status:'em_andamento'});
-       salvar(); pintaOkr(); };
-     okx.append(add);
-    };
-    pintaOkr();
+ /* --- o que precisa da sua atenção --- */
+ const atencao = [];
+ X.forEach(x=>{
+  if(x.desde1a1 === null) atencao.push([x.n, 'nunca teve 1:1 registrado', 'ruim']);
+  else if(x.desde1a1 > 30) atencao.push([x.n, 'sem 1:1 há '+x.desde1a1+' dias', 'ruim']);
+  if(x.objAtrasados) atencao.push([x.n, x.objAtrasados+' objetivo'+(x.objAtrasados>1?'s':'')
+    +' com prazo vencido', 'ruim']);
+  if(x.compAtrasados) atencao.push([x.n, x.compAtrasados+' combinado'+(x.compAtrasados>1?'s':'')
+    +' fora do prazo', 'ruim']);
+  if(x.metaSem && x.sem.total < x.metaSem*0.5)
+   atencao.push([x.n, 'com '+Math.round(x.sem.total/x.metaSem*100)+'% da meta da semana', 'ruim']);
+  if(!x.ativ) atencao.push([x.n, 'sem nenhuma atividade no período', 'ruim']);
+ });
+ if(atencao.length){
+  m.append(el('<h2>Precisa da sua atenção</h2>'));
+  const bx = el('<div class="diag"></div>');
+  atencao.forEach(([quem,oque])=>
+   bx.append(el('<div class="di ruim"><b>'+esc(quem)+'</b>&nbsp;'+esc(oque)+'</div>')));
+  m.append(bx);
+ }
 
-    const meus = (dados.reunioes||[]).filter(r=>(r.pessoas||[]).includes(n))
-      .sort((a,b)=> a.data < b.data ? 1 : -1);
-    const abertosN = meus.flatMap(r=>(r.comp||[]).filter(c=>!c.feito && (!c.quem || c.quem===n)));
-    host.append(el('<h4 class="sec">Reuniões com '+esc(n)+'</h4>'));
-    if(!meus.length){
-     host.append(el('<div class="empty">Nenhuma reunião registrada com '+esc(n)+'. '
-      +'A aba Reuniões é onde isso fica.</div>'));
-    } else {
-     const ult = meus[0];
-     host.append(el('<p class="mini">'+meus.length+' registrada'+(meus.length>1?'s':'')
-      +', a última em '+dbr(ult.data)+' ('+esc(tipoPor(ult.tipo).nome)+')'
-      +(abertosN.length? ' · <b class="warn">'+abertosN.length+' combinado'
-        +(abertosN.length>1?'s':'')+' em aberto</b>' : '')+'</p>'));
-     if(abertosN.length) host.append(el('<div class="hist">'+abertosN.map(c=>'<div class="it">'
-      +'<div class="cab"><b>'+esc(c.oque||'(sem descrição)')+'</b><span>'
-      +(c.quando? dbr(c.quando):'sem prazo')+'</span></div></div>').join('')+'</div>'));
-    }
-    const ir = el('<div class="actions" style="margin-top:12px;padding-top:12px">'
-      +'<button class="btn ghost sm">Registrar 1:1 com '+esc(n)+'</button></div>');
-    ir.querySelector('button').onclick = () => {
-     dados.reunioes = dados.reunioes || [];
-     dados.reunioes.unshift(novaReuniao('1a1', n));
-     salvar(); atual='reunioes'; render(); window.scrollTo({top:0});
-    };
-    host.append(ir);
-
-    host.append(el('<h4 class="sec">Negócios trabalhados no período</h4>'));
-    detalhePessoa(host, n);
-   });
+ /* --- comparativo --- */
+ m.append(el('<h2>O time em uma tabela</h2>'));
+ let ord = 'pontos';
+ const segO = el('<div class="seg" style="margin-bottom:10px">'
+  +'<button class="on" data-o="pontos">Por pontos</button>'
+  +'<button data-o="carteira">Por carteira</button>'
+  +'<button data-o="risco">Por risco</button></div>');
+ const tb = el('<div></div>');
+ m.append(segO, tb);
+ const pintaTb = () => {
+  segO.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.o===ord));
+  tb.innerHTML='';
+  const risco = x => (x.desde1a1===null?60:x.desde1a1) + x.objAtrasados*20 + x.compAtrasados*20
+    + (x.metaSem && x.sem.total<x.metaSem ? 30 : 0);
+  const l = [...X].sort((a,b)=> ord==='pontos' ? b.sem.total-a.sem.total
+    : ord==='carteira' ? b.carteira-a.carteira : risco(b)-risco(a));
+  tabela(tb, l, [
+   {k:'n', h:'Pessoa', f:x=>'<b>'+esc(x.n)+'</b><div class="mini">'+esc(x.frente)+'</div>'},
+   {k:'pts', h:'Pontos na semana', r:1, f:x=>{
+     const pct = x.metaSem ? Math.round(x.sem.total/x.metaSem*100) : null;
+     return '<b'+(pct!==null && pct<100 ? ' class="warn"':'')+'>'+nf(x.sem.total)+'</b>'
+      + (x.metaSem ? '<div class="mini">de '+nf(x.metaSem)+' · '+pct+'%</div>'
+        : '<div class="mini">sem meta</div>'); }},
+   {k:'ativ', h:'Atividades', r:1, f:x=>x.ativ+'<div class="mini">'+x.tocados+' negócios</div>'},
+   {k:'carteira', h:'Carteira', r:1, f:x=>nf(x.carteira)
+     +'<div class="mini">'+x.quentes+' quentes</div>'},
+   {k:'desde1a1', h:'Último 1:1', f:x=> x.desde1a1===null
+     ? '<span class="warn">nunca</span>'
+     : (x.desde1a1>30?'<span class="warn">':'<span>')+'há '+x.desde1a1+' d</span>'},
+   {k:'objetivos', h:'Objetivos', r:1, f:x=> x.objetivos
+     ? x.objetivos+(x.objAtrasados? '<div class="mini warn">'+x.objAtrasados+' vencido</div>':'')
+     : '<span class="mini warn">nenhum</span>'},
+   {k:'compAbertos', h:'Combinados', r:1, f:x=> x.compAbertos
+     ? x.compAbertos+(x.compAtrasados? '<div class="mini warn">'+x.compAtrasados+' fora do prazo</div>':'')
+     : '—'},
+  ], '', 'pessoas');
  };
- ativos.forEach(cartao);
+ segO.querySelectorAll('button').forEach(b=>b.onclick=()=>{ ord=b.dataset.o; pintaTb(); });
+ pintaTb();
+
+ /* --- quadro de cada pessoa --- */
+ m.append(el('<h2>Quadro individual</h2>'));
+ const qx = el('<div></div>'); m.append(qx);
+ X.forEach(x=>{
+  const n = x.n;
+  const pct = x.metaSem ? Math.min(x.sem.total/x.metaSem*100,100) : 0;
+  linha(qx,
+   '<div class="hd"><span class="nm">'+esc(n)+'</span>'
+    +'<span class="stat num'+(x.metaSem && x.sem.total<x.metaSem?' warn':'')+'">'
+    +nf(x.sem.total)+' pts na semana'+(x.metaSem? ' de '+nf(x.metaSem):'')+'</span></div>'
+   +'<div class="sub">'+esc(x.frente)+' · '+x.ativ+' atividades · '+nf(x.carteira)+' na carteira'
+    +' · '+(x.desde1a1===null? 'nunca teve 1:1' : '1:1 há '+x.desde1a1+' d')+'</div>'
+   +'<div class="bar"><i class="'+(x.metaSem && x.sem.total>=x.metaSem?'':'dim')
+    +'" style="width:'+Math.max(x.metaSem? pct : 2, 2)+'%"></i></div>',
+   host => {
+    let vista = 'resumo';
+    const seg = el('<div class="seg" style="margin:12px 0 10px;flex-wrap:wrap">'
+     +'<button class="on" data-v="resumo">Como está</button>'
+     +'<button data-v="objetivos">Objetivos</button>'
+     +'<button data-v="1a1">1:1 e plano</button>'
+     +'<button data-v="trabalho">Trabalho</button></div>');
+    const alvo = el('<div></div>');
+    host.append(seg, alvo);
+    const pinta = () => {
+     seg.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===vista));
+     alvo.innerHTML='';
+     if(vista==='resumo'){
+      const dx = el('<div class="diag"></div>');
+      diagnostico(n).forEach(([txt,tipo])=> dx.append(el('<div class="di '+tipo+'">'+esc(txt)+'</div>')));
+      alvo.append(dx);
+      alvo.append(el('<h4 class="sec">De onde vieram os pontos da semana</h4>'));
+      const itens = Object.entries(x.sem.porCanal).sort((a,b)=>b[1].p-a[1].p);
+      if(!itens.length) alvo.append(el('<div class="empty">Nada registrado nesta semana.</div>'));
+      else {
+       const pcs = {...pontosCfg(), 'Venda':extraCfg().venda, 'Tarefa no prazo':extraCfg().tarefaNoPrazo};
+       const cv = el('<div></div>');
+       cv.append(el('<div class="conv conv5"><span class="mini">Canal</span><span class="h">Qtd</span>'
+        +'<span class="h">Vale</span><span class="h">Pontos</span><span class="h">%</span></div>'));
+       itens.forEach(([k,v])=> cv.append(el('<div class="conv conv5"><span class="nm">'+esc(k)+'</span>'
+        +'<span class="v">'+v.n+'</span><span class="v">'+(pcs[k]??0)+'</span>'
+        +'<span class="v">'+nf(v.p)+'</span><span class="v">'
+        +(x.sem.total? Math.round(v.p/x.sem.total*100):0)+'%</span></div>')));
+       alvo.append(cv);
+      }
+     }
+     else if(vista==='objetivos'){ blocoObjetivos(alvo, n); }
+     else if(vista==='1a1'){ bloco1a1(alvo, n); }
+     else detalhePessoa(alvo, n);
+    };
+    seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{ vista=b.dataset.v; pinta(); });
+    pinta();
+   });
+ });
+
  if(sairam.length){
   m.append(el('<h2>Fora do time</h2>'));
-  m.append(el('<p class="lede">Sem atividade há mais de '+DIAS_INATIVO+' dias e sem nenhum negócio na '
-   +'mão. Continuam aqui porque o trabalho que fizeram é parte do histórico — mas ficam fora das metas, '
-   +'do fechamento do dia e da matinal.</p>'));
+  m.append(el('<p class="lede">Sem atividade há mais de '+DIAS_INATIVO+' dias e sem negócio na mão. '
+   +'Ficam fora das metas e da matinal, mas o histórico continua.</p>'));
   sairam.forEach(n=>{
    const u = ultimaAtividade(n);
    linha(m, '<div class="hd"><span class="nm">'+esc(n)+'</span>'
-    +'<span class="stat num">'+(u? 'última atividade em '+dbr(u) : 'nunca registrou atividade')+'</span></div>'
-    +'<div class="sub">'+esc(frenteDe(n))+' · '+V.pessoas[n].total+' atividades no período · '
-    + D.resultado.filter(x=>x.d===n && x.r==='ganho').length+' ganhos no histórico</div>',
+    +'<span class="stat num">'+(u? 'última atividade em '+dbr(u) : 'nunca registrou')+'</span></div>'
+    +'<div class="sub">'+D.resultado.filter(x=>x.d===n && x.r==='ganho').length
+    +' ganhos no histórico</div>',
     host => detalhePessoa(host, n));
   });
  }
+}
+
+function blocoObjetivos(host, n){
+ host.append(el('<p class="mini">Objetivo com resultado medível e prazo. O progresso é você quem move.</p>'));
+ const okx = el('<div></div>'); host.append(okx);
+ const pinta = () => {
+  okx.innerHTML='';
+  const l = objetivosDe(n);
+  if(!l.length) okx.append(el('<div class="empty">Nenhum objetivo definido para '+esc(n)+'.</div>'));
+  l.forEach(o=>{
+   const atras = o.prazo && o.prazo < HOJE && o.status!=='concluido';
+   const li = el('<div class="okr'+(o.status==='concluido'?' feito':'')+'">'
+    +'<input class="search oko" placeholder="Objetivo">'
+    +'<input class="search okk" placeholder="Como saber que foi atingido">'
+    +'<div class="okb"><input type="date" class="search okp" style="max-width:150px">'
+    +'<input type="range" min="0" max="100" step="10" class="okr-r">'
+    +'<span class="okv num"></span><button class="btn ghost sm" data-del>Remover</button></div></div>');
+   const ob=li.querySelector('.oko'), kk=li.querySelector('.okk'), pz=li.querySelector('.okp'),
+         rg=li.querySelector('.okr-r'), vv=li.querySelector('.okv');
+   ob.value=o.objetivo||''; kk.value=o.kr||''; pz.value=o.prazo||''; rg.value=o.progresso||0;
+   const mostra = () => { vv.textContent=(o.progresso||0)+'%'; vv.className='okv num'+(atras?' warn':''); };
+   ob.oninput=()=>{o.objetivo=ob.value; salvar();};
+   kk.oninput=()=>{o.kr=kk.value; salvar();};
+   pz.onchange=()=>{o.prazo=pz.value; salvar(); pinta();};
+   rg.oninput=()=>{o.progresso=+rg.value; o.status=+rg.value>=100?'concluido':'em_andamento';
+     mostra(); salvar();};
+   li.querySelector('[data-del]').onclick=()=>{
+    paraLixeira('objetivo', o, (o.objetivo||'sem título')+' — '+n);
+    dados.okrs=(dados.okrs||[]).filter(z=>z!==o); salvar(); pinta();};
+   mostra(); okx.append(li);
+  });
+  const add = el('<button class="btn ghost sm" style="margin-top:8px">Adicionar objetivo</button>');
+  add.onclick = () => { dados.okrs = dados.okrs||[];
+   dados.okrs.push({id:'o'+Date.now(), quem:n, objetivo:'', kr:'', prazo:'', progresso:0,
+     status:'em_andamento'}); salvar(); pinta(); };
+  okx.append(add);
+ };
+ pinta();
+}
+
+function bloco1a1(host, n){
+ const meus = (dados.reunioes||[]).filter(r=>(r.pessoas||[]).includes(n))
+   .sort((a,b)=> a.data < b.data ? 1 : -1);
+ const abertosN = meus.flatMap(r=>(r.comp||[]).filter(c=>!c.feito && (!c.quem || c.quem===n)));
+
+ host.append(el('<h4 class="sec">Plano de desenvolvimento</h4>'));
+ dados.pdi[n] = dados.pdi[n] || {};
+ PDI.forEach(([k,rot])=>{
+  host.append(el('<label for="pdi-'+n+'-'+k+'">'+rot+'</label>'));
+  const ta = el('<textarea id="pdi-'+n+'-'+k+'" rows="2"></textarea>');
+  ta.value = dados.pdi[n][k] || '';
+  ta.oninput = () => { dados.pdi[n][k] = ta.value; salvar(); };
+  host.append(ta);
+ });
+
+ host.append(el('<h4 class="sec">Reuniões com '+esc(n)+'</h4>'));
+ if(!meus.length) host.append(el('<div class="empty">Nenhuma reunião registrada.</div>'));
+ else {
+  if(abertosN.length) host.append(el('<div class="hist">'+abertosN.map(c=>'<div class="it">'
+   +'<div class="cab"><b>'+esc(c.oque||'(sem descrição)')+'</b><span>'
+   +(c.quando? dbr(c.quando):'sem prazo')+'</span></div></div>').join('')+'</div>'));
+  const bx = el('<div></div>');
+  meus.slice(0,8).forEach(r=>{
+   const t = tipoPor(r.tipo);
+   linha(bx, '<div class="hd"><span class="nm">'+esc(r.assunto || t.nome)+'</span>'
+    +'<span class="stat num">'+dbr(r.data)+'</span></div>'
+    +'<div class="sub">'+esc(t.nome)+'</div>',
+    h2 => {
+     t.pontos.forEach(ponto=>{
+      const v = (r.pontos||{})[ponto];
+      if((v||'').trim()) h2.append(el('<p style="margin:10px 0 0"><span class="mini">'+esc(ponto)
+        +'</span><br>'+esc(v)+'</p>'));
+     });
+    });
+  });
+  host.append(bx);
+ }
+ const ir = el('<div class="actions" style="margin-top:12px;padding-top:12px">'
+   +'<button class="btn ghost sm">Registrar 1:1 com '+esc(n)+'</button></div>');
+ ir.querySelector('button').onclick = () => {
+  dados.reunioes = dados.reunioes || [];
+  dados.reunioes.unshift(novaReuniao('1a1', n));
+  salvar(); atual='reunioes'; render(); window.scrollTo({top:0});
+ };
+ host.append(ir);
 }
 
 function detalhePessoa(host, n){
