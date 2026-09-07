@@ -35,6 +35,28 @@ button{font-family:inherit}
 /* ---------- topo ---------- */
 .top{position:sticky;top:0;z-index:30;background:var(--paper);
  border-bottom:1px solid var(--rule);padding:env(safe-area-inset-top) 16px 0}
+@media(min-width:1000px){
+ body{display:grid;grid-template-columns:230px 1fr;min-height:100vh}
+ .lateral{display:flex;flex-direction:column;background:#0E2233;color:#C8D6E0;padding:22px 14px;
+  position:sticky;top:0;height:100vh;overflow-y:auto}
+ .lateral .marca{font-size:17px;font-weight:700;color:#fff;letter-spacing:-.02em;
+  padding:0 10px 20px;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:16px}
+ .lateral .marca span{color:var(--ochre)}
+ .lateral button{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  width:100%;background:none;border:0;color:#9FB3C4;font:inherit;font-size:14px;text-align:left;
+  padding:11px 12px;border-radius:8px;cursor:pointer;margin-bottom:2px}
+ .lateral button:hover{background:rgba(255,255,255,.06);color:#fff}
+ .lateral button.on{background:rgba(255,255,255,.1);color:#fff;font-weight:600}
+ .lateral .bdg{background:var(--clay);color:#fff;border-radius:9px;padding:0 6px;
+  font-size:10.5px;line-height:17px;font-weight:600}
+ .lateral .rodape{margin-top:auto;padding:16px 10px 0;border-top:1px solid rgba(255,255,255,.1);
+  font-size:11.5px;color:#6D8296;line-height:1.5}
+ .conteudo{min-width:0}
+ .top nav{display:none}
+ .top{padding-top:16px}
+ .wrap{padding-left:26px;padding-right:26px}
+}
+.lateral{display:none}
 .top-in{max-width:900px;margin:0 auto}
 .brand{display:flex;align-items:center;justify-content:space-between;gap:10px;
  padding:14px 0 10px;max-height:70px;overflow:hidden;
@@ -49,6 +71,60 @@ h1{font-size:19px;line-height:1.2;margin:0;letter-spacing:-.02em;font-weight:650
 .dot.old{background:var(--ochre)}
 
 /* faixas roláveis */
+.hero{margin:6px 0 20px}
+.hero h1{font-size:26px;letter-spacing:-.02em;margin:0 0 4px}
+.hero .lede{margin:0}
+
+.kpis4{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:26px}
+.kpi4{display:flex;gap:13px;align-items:flex-start;background:var(--card);
+ border:1px solid var(--rule);border-radius:12px;padding:16px}
+.kpi4.alerta{border-color:#E8C9CE;background:#FDF7F8}
+.kpi4 .ic{width:38px;height:38px;flex:none;border-radius:10px;background:var(--teal-bg);
+ color:var(--teal);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:600}
+.kpi4.alerta .ic{background:#F6E3E6;color:var(--clay)}
+.kpi4 .tt{font-size:12.5px;color:var(--soft)}
+.kpi4 .vl{font-size:24px;letter-spacing:-.02em;margin:2px 0 3px;font-variant-numeric:tabular-nums}
+.kpi4 .sb{font-size:12px;color:var(--faint);line-height:1.4}
+
+.empresas-lista{border:1px solid var(--rule);border-radius:12px;overflow:hidden;background:var(--card)}
+.emp-linha{display:grid;grid-template-columns:1.6fr 1fr 1fr .9fr;gap:12px;align-items:center;
+ padding:15px 16px;border-bottom:1px solid var(--rule)}
+.emp-linha:last-child{border-bottom:0}
+.emp-linha:hover{background:#FAFBF9}
+.emp-linha.off{opacity:.62}
+.emp-nome b{display:block;font-size:15px}
+.emp-nome .fonte{font-size:11.5px;color:var(--faint)}
+.emp-num{font-size:16px;font-variant-numeric:tabular-nums;text-align:right}
+.emp-num span{display:block;font-size:11.5px;color:var(--faint);font-variant-numeric:normal}
+.emp-st{font-size:12.5px;color:var(--soft);display:flex;align-items:center;gap:6px;justify-content:flex-end}
+.bola{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.bola.ok{background:var(--teal)} .bola.at{background:var(--ochre)} .bola.off{background:var(--rule2)}
+@media(max-width:700px){
+ .emp-linha{grid-template-columns:1fr auto;gap:6px 10px}
+ .emp-nome{grid-column:1/3}
+ .emp-num{text-align:left}
+ .emp-st{justify-content:flex-start}
+}
+
+.decisao{display:flex;gap:12px;align-items:center;justify-content:space-between;
+ background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:13px 15px;margin-bottom:8px}
+.alertas-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.alerta-c{display:flex;gap:11px;background:var(--card);border:1px solid var(--rule);
+ border-radius:10px;padding:14px;cursor:pointer;align-items:flex-start}
+.alerta-c.crit{border-left:3px solid var(--clay)}
+.alerta-c.alto{border-left:3px solid var(--ochre)}
+.alerta-c .ico{width:24px;height:24px;flex:none;border-radius:6px;display:flex;align-items:center;
+ justify-content:center;font-size:13px;font-weight:700}
+.alerta-c.crit .ico{background:#F6E3E6;color:var(--clay)}
+.alerta-c.alto .ico{background:var(--ochre-bg);color:var(--ochre)}
+.alerta-c .tt{font-size:14px;color:var(--ink);line-height:1.3}
+.alerta-c .sb{font-size:12px;color:var(--faint);margin-top:3px;line-height:1.4}
+
+.integr{display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin-top:26px;padding-top:14px;
+ border-top:1px solid var(--rule);font-size:12.5px;color:var(--soft)}
+.integr span{display:flex;align-items:center;gap:6px}
+.integr .dir{margin-left:auto;color:var(--faint)}
+
 .empresas{display:flex;gap:10px;align-items:center;padding:2px 0 12px;overflow-x:auto;
  scrollbar-width:none}
 .empresas::-webkit-scrollbar{display:none}
@@ -385,6 +461,8 @@ textarea{width:100%;font:inherit;font-size:16px;padding:11px 12px;border:1px sol
  tr{page-break-inside:avoid}
 }
 </style></head><body>
+<aside class="lateral" id="lateral"></aside>
+<div class="conteudo">
 
 <div class="top"><div class="top-in">
  <div class="brand">
@@ -403,6 +481,7 @@ textarea{width:100%;font:inherit;font-size:16px;padding:11px 12px;border:1px sol
 <div class="wrap"><div id="modo"></div>
 <main id="main"></main>
 <section class="cobertura" id="cobertura"></section>
+</div>
 </div>
 
 <script>
@@ -3310,6 +3389,137 @@ function pendencias(){
  return out.sort((a,b)=> (a.quando||'9999') < (b.quando||'9999') ? -1 : 1);
 }
 
+/* Visão do Grupo — a home do BJ7 Control.
+   Cada cartão diz de onde vem o número. Onde a fonte ainda não está conectada,
+   o painel escreve isso em vez de mostrar zero: zero e "não conectado" são
+   coisas muito diferentes na hora de decidir.                                */
+const FONTES = {
+ izi:     {nome:'Izi Imóveis',            fonte:'Pipedrive', ok:true},
+ paineis: {nome:'BJ7 Painéis',            fonte:'Pipedrive', ok:true},
+ stone:   {nome:'Stone · BJ7 Consultoria',fonte:'Salesforce', ok:false},
+ incorp:  {nome:'Incorporação',           fonte:'Pipedrive',  ok:false},
+ casas:   {nome:'Izi Casas',              fonte:'Pipedrive',  ok:false},
+};
+
+function metricasDaOperacao(id){
+ const emp = EMPRESAS.find(e=>e.id===id);
+ if(!emp) return null;
+ const N = D.negocios.filter(x=>emp.funis.includes(x.f));
+ const A = D.ativ.filter(x=>x.q>=PER.ini && x.q<=PER.fim
+   && (x.i ? EMP_DO_NEGOCIO[x.i]===id : EMP_DA_PESSOA[x.a]===id));
+ const g = D.resultado.filter(x=>emp.funis.includes(x.f) && x.r==='ganho'
+   && x.q>=PER.ini && x.q<=PER.fim).length;
+ const quentes = N.filter(x=>{
+   const at = D.ativ.filter(z=>z.i===x.id && REAL.includes(z.t));
+   const ult = at.map(z=>z.q).sort().pop();
+   return x.av && ult && dif(ult, D.hoje) <= 7; }).length;
+ return {carteira:N.length, ativ:A.length, ganhos:g, quentes};
+}
+
+function viewGrupo(m){
+ const hora = +((D.sincronizadoEm||'').slice(11,13) || 9);
+ const saud = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
+ m.append(el('<div class="hero"><h1>'+saud+', Jonathas</h1>'
+  +'<p class="lede">O panorama do grupo para você decidir. '+esc(PER.rot)+'.</p></div>'));
+
+ /* --- quatro números do grupo --- */
+ const T = (()=>{ const eAnt = EMP; EMP = EMPRESAS.find(e=>e.id==='grupo');
+   const r = totais(); EMP = eAnt; return r; })();
+ const L = lancamentos();
+ const noPer = l => (l.competencia||'') >= PER.ini && (l.competencia||'') <= PER.fim;
+ const ent = L.filter(l=>l.tipo==='entrada' && noPer(l)).reduce((a,l)=>a+(+l.valor||0),0);
+ const sai = L.filter(l=>l.tipo==='saida'   && noPer(l)).reduce((a,l)=>a+(+l.valor||0),0);
+ const temFin = L.length > 0;
+ const pend = pendencias().filter(x=>x.quando && x.quando <= HOJE);
+
+ const cards = el('<div class="kpis4"></div>');
+ const card = (icone, titulo, valor, sub, alerta) =>
+  el('<div class="kpi4'+(alerta?' alerta':'')+'"><div class="ic">'+icone+'</div>'
+   +'<div><div class="tt">'+titulo+'</div><div class="vl">'+valor+'</div>'
+   +'<div class="sb">'+sub+'</div></div></div>');
+ cards.append(
+  card('R$','Resultado do período', temFin ? MOEDA(ent-sai) : '—',
+    temFin ? 'entrou '+MOEDA(ent)+' · saiu '+MOEDA(sai)
+      : 'nenhum lançamento registrado ainda'),
+  card('↗','Ganhos no período', T.g,
+    T.pc+' perdas · '+(T.conv===null?'—':T.conv.toFixed(0)+'% de conversão')),
+  card('◷','Negócios criados', nf(T.novos), 'carteira de '+nf(T.carteira)+' abertos'),
+  card('!','Decisões pendentes', pend.length,
+    pend.length? 'vencidas ou para hoje' : 'nada vencido', pend.length>0));
+ m.append(cards);
+
+ /* --- as cinco operações --- */
+ m.append(el('<h2>Empresas</h2>'));
+ m.append(el('<p class="lede">Desempenho de cada operação e de onde o número vem. '
+  +'Onde a fonte não está conectada, o painel diz — não inventa zero.</p>'));
+ const bx = el('<div class="empresas-lista"></div>');
+ Object.entries(FONTES).forEach(([id, f])=>{
+  const mt = f.ok ? metricasDaOperacao(id) : null;
+  const fin = L.filter(l=>noPer(l) && parteDe(l, id) !== 0);
+  const res = fin.reduce((a,l)=>a + (l.tipo==='entrada'?1:-1)*parteDe(l,id), 0);
+  const li = el('<div class="emp-linha'+(f.ok?'':' off')+'">'
+   +'<div class="emp-nome"><b>'+esc(f.nome)+'</b>'
+   +'<span class="fonte'+(f.ok?'':' warn')+'">'+esc(f.fonte)+(f.ok?'':' · não conectado')+'</span></div>'
+   +'<div class="emp-num">'+(mt
+      ? nf(mt.carteira)+'<span>negócios · '+mt.quentes+' quentes</span>'
+      : '—<span>sem dado comercial</span>')+'</div>'
+   +'<div class="emp-num">'+(fin.length
+      ? MOEDA(res)+'<span>no financeiro</span>'
+      : '—<span>sem lançamento</span>')+'</div>'
+   +'<div class="emp-st">'+(f.ok
+      ? (mt && mt.ativ ? '<span class="bola ok"></span>Ativa'
+         : '<span class="bola at"></span>Sem atividade')
+      : '<span class="bola off"></span>Aguardando conexão')+'</div></div>');
+  if(f.ok){ li.style.cursor='pointer';
+   li.onclick = () => { EMP = EMPRESAS.find(e=>e.id===id) || EMP;
+     trocarEmpresa(id); atual='resumo'; render(); window.scrollTo({top:0}); }; }
+  bx.append(li);
+ });
+ m.append(bx);
+
+ /* --- precisa da sua decisão --- */
+ m.append(el('<h2>Precisa da sua decisão</h2>'));
+ if(!pend.length) m.append(el('<div class="empty">Nada vencido nem para hoje.</div>'));
+ else {
+  const dx = el('<div></div>');
+  pend.slice(0,6).forEach(x=>{
+   const l = el('<div class="decisao"><div><span class="nm">'+esc(x.o)+'</span>'
+    +'<div class="sub">'+esc(x.onde)+' · '+esc(x.quem||'sem dono')+' · prazo '+dbr(x.quando)+'</div></div>'
+    +'<button class="btn ghost sm">Abrir</button></div>');
+   l.querySelector('button').onclick = () => { x.ir(); window.scrollTo({top:0}); };
+   dx.append(l);
+  });
+  m.append(dx);
+ }
+
+ /* --- alertas críticos --- */
+ const vis = (()=>{ const eAnt = EMP; EMP = EMPRESAS.find(e=>e.id==='grupo');
+   const r = visiveis().filter(a=>nivelDe(a)!=='medio'); EMP = eAnt; return r; })();
+ if(vis.length){
+  m.append(el('<h2>Alertas críticos</h2>'));
+  const ax = el('<div class="alertas-grid"></div>');
+  vis.slice(0,4).forEach(a=>{
+   const l = el('<div class="alerta-c '+(nivelDe(a)==='critico'?'crit':'alto')+'">'
+    +'<span class="ico">'+(nivelDe(a)==='critico'?'!':'▲')+'</span>'
+    +'<div><div class="tt">'+esc(a.t)+'</div>'
+    +'<div class="sb">'+esc(a.a)+'</div></div></div>');
+   l.onclick = () => { atual='alertas'; render(); window.scrollTo({top:0}); };
+   ax.append(l);
+  });
+  m.append(ax);
+ }
+
+ /* --- integrações --- */
+ const min = D.sincronizadoEm ? Math.round((Date.now()-new Date(D.sincronizadoEm))/6e4) : null;
+ m.append(el('<div class="integr">'
+  +'<span><i class="bola ok"></i>Pipedrive conectado</span>'
+  +'<span><i class="bola off"></i>Salesforce não conectado</span>'
+  +'<span><i class="bola '+(MODO==='servidor'?'ok':'off')+'"></i>'
+   +(MODO==='servidor'?'Dados do time no servidor':'Dados do time não estão sendo salvos')+'</span>'
+  +'<span class="dir">'+(min===null? 'sem sincronização'
+    : 'atualizado há '+(min<60? min+' min' : Math.round(min/60)+' h'))+'</span></div>'));
+}
+
 function viewAgenda(m){
  const p = pendencias();
  const atras = p.filter(x=>x.quando && x.quando < HOJE);
@@ -4140,6 +4350,7 @@ function linha(host, html, preencher){
 /* Duas camadas: primeiro o assunto, depois a tela. Dezessete abas lado a lado
    não se navega no celular — e a pessoa perde tempo procurando em vez de agir. */
 const GRUPOS = [
+ {id:'grupo',     rot:'Visão do Grupo', abas:[['grupo','Visão do Grupo']]},
  {id:'hoje',      rot:'Agenda',    abas:[['agenda','O que fazer'],['alertas','Alertas']]},
  {id:'comercial', rot:'Comercial', abas:[['resumo','Resumo'],['quentes','Quentes'],
    ['leitura','Leitura'],['atividades','Atividades'],['carteira','Carteira'],['resultado','Resultado']]},
@@ -4150,7 +4361,7 @@ const GRUPOS = [
 ];
 const ABAS = GRUPOS.flatMap(g=>g.abas);
 const grupoDe = aba => GRUPOS.find(g=>g.abas.some(([id])=>id===aba)) || GRUPOS[0];
-let atual = 'agenda';
+let atual = 'grupo';
 const nav = document.getElementById('nav');
 const subnav = document.getElementById('subnav');
 GRUPOS.forEach(g=>{
@@ -4170,6 +4381,19 @@ function render(){
   const n = CONT[b.dataset.g];
   b.innerHTML = b.dataset.rot + (n ? '<span class="bdg">'+n+'</span>' : '');
  });
+ const lat = document.getElementById('lateral');
+ if(lat){
+  lat.innerHTML = '<div class="marca">BJ7 <span>Control</span></div>';
+  GRUPOS.forEach(gr=>{
+   const b = document.createElement('button');
+   const n = CONT[gr.id];
+   b.innerHTML = '<span>'+gr.rot+'</span>' + (n ? '<span class="bdg">'+n+'</span>' : '');
+   b.classList.toggle('on', gr.id===g.id);
+   b.onclick = () => { atual = gr.abas[0][0]; render(); window.scrollTo({top:0}); };
+   lat.append(b);
+  });
+  lat.append(el('<div class="rodape">Disciplina hoje.<br>Grandes resultados amanhã.</div>'));
+ }
  subnav.innerHTML = '';
  subnav.style.display = g.abas.length>1 ? '' : 'none';
  if(g.abas.length>1) g.abas.forEach(([id,rot])=>{
@@ -4184,7 +4408,7 @@ function render(){
  });
  const m = document.getElementById('main');
  m.innerHTML = '';
- const VIEWS = {agenda:viewAgenda, resumo:viewResumo, quentes:viewQuentes, leitura:viewLeitura,
+ const VIEWS = {grupo:viewGrupo, agenda:viewAgenda, resumo:viewResumo, quentes:viewQuentes, leitura:viewLeitura,
    resultado:viewResultado, atividades:viewAtividades, pessoas:viewPessoas,
    carteira:m=>viewUnidade(m, EMP.nome, EMP.funis), reunioes:viewReunioes,
    alertas:viewAlertas, matinal:viewMatinal};
