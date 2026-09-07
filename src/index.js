@@ -197,7 +197,14 @@ export async function montar(env) {
     }
   }
 
+  /* fontes externas: falha de uma não pode derrubar a sincronização das outras */
+  const [trelloR, sheetsR] = await Promise.all([
+    lerTrello(env).catch(e => ({ ligado: false, erro: String(e.message || e) })),
+    lerSheets(env).catch(e => ({ ligado: false, erro: String(e.message || e) })),
+  ]);
+
   return {
+    trello: trelloR, sheets: sheetsR,
     negocios, resultado, ativ, mortas: MORTAS, hoje,
     janela: { ini: crs[0] || hoje, fim: hoje },
     meses,
@@ -216,6 +223,198 @@ async function sincronizar(env) {
   const dados = await montar(env);
   await env.CENTRAL.put(CHAVE_KV, JSON.stringify(dados));
   return dados;
+}
+
+/* ------------------------------------------------------------------
+   Fontes externas. Cada dado tem um dono, e a Central só lê.
+     Tarefas e reuniões  → Trello
+     Financeiro          → Google Sheets
+   Quando o segredo da fonte não está configurado, o Worker devolve
+   { ligado:false } e o painel diz isso na tela em vez de mostrar zero.
+------------------------------------------------------------------- */
+
+/* ---------- Trello ---------- */
+async function trello(env, caminho, params = {}) {
+  const u = new URL('https://api.trello.com/1' + caminho);
+  u.searchParams.set('key', env.TRELLO_KEY);
+  u.searchParams.set('token', env.TRELLO_TOKEN);
+  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+  const r = await fetch(u);
+  if (!r.ok) throw new Error('Trello ' + caminho + ' devolveu ' + r.status);
+  return r.json();
+}
+
+/* Lista do Trello vira situação. O nome da lista manda: se contém "conclu",
+   "feito" ou "done", a tarefa está fechada. */
+function situacaoDaLista(nome) {
+  const n = (nome || '').toLowerCase();
+  if (/(conclu|feito|done|pronto|entregue)/.test(n)) return 'concluida';
+  if (/(fazendo|doing|andamento|execu)/.test(n)) return 'fazendo';
+  if (/(cancel|descart)/.test(n)) return 'cancelada';
+  return 'aberta';
+}
+function prioridadeDosRotulos(labels) {
+  const n = (labels || []).map(l => (l.name || '').toLowerCase()).join(' ');
+  if (/(urgent|alta|cr[íi]tic)/.test(n)) return 'alta';
+  if (/(baixa|low)/.test(n)) return 'baixa';
+  return 'média';
+}
+
+async function lerTrello(env) {
+  if (!env.TRELLO_KEY || !env.TRELLO_TOKEN || !env.TRELLO_BOARD) {
+    return { ligado: false, motivo: 'TRELLO_KEY, TRELLO_TOKEN e TRELLO_BOARD não configurados' };
+  }
+  const [listas, cartoes, membros] = await Promise.all([
+    trello(env, '/boards/' + env.TRELLO_BOARD + '/lists', { fields: 'name' }),
+    trello(env, '/boards/' + env.TRELLO_BOARD + '/cards',
+      { fields: 'name,desc,due,dueComplete,idList,idMembers,labels,dateLastActivity,shortUrl',
+        limit: 1000 }),
+    trello(env, '/boards/' + env.TRELLO_BOARD + '/members', { fields: 'fullName,username' }),
+  ]);
+  const nomeLista = Object.fromEntries(listas.map(l => [l.id, l.name]));
+  const nomeMembro = Object.fromEntries(membros.map(m => [m.id, nomeCurto(m.fullName || m.username)]));
+  const tarefas = cartoes.map(c => ({
+    id: 'tr' + c.id,
+    titulo: c.name,
+    obs: (c.desc || '').slice(0, 800),
+    prazo: c.due ? c.due.slice(0, 10) : '',
+    status: c.dueComplete ? 'concluida' : situacaoDaLista(nomeLista[c.idList]),
+    lista: nomeLista[c.idList] || '',
+    responsavel: (c.idMembers || []).map(id => nomeMembro[id]).filter(Boolean)[0] || '',
+    prioridade: prioridadeDosRotulos(c.labels),
+    etiquetas: (c.labels || []).map(l => l.name).filter(Boolean),
+    atualizado: (c.dateLastActivity || '').slice(0, 10),
+    link: c.shortUrl || '',
+    origem: 'trello',
+  }));
+  return { ligado: true, tarefas, listas: listas.map(l => l.name) };
+}
+
+/* ---------- Google Sheets, via conta de serviço ---------- */
+function b64url(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+async function tokenGoogle(env) {
+  const conta = JSON.parse(env.GOOGLE_SA);           /* json da conta de serviço */
+  const agora = Math.floor(Date.now() / 1000);
+  const cab = b64url(new TextEncoder().encode(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
+  const corpo = b64url(new TextEncoder().encode(JSON.stringify({
+    iss: conta.client_email,
+    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: agora + 3600, iat: agora,
+  })));
+  const pem = conta.private_key.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
+  const bin = Uint8Array.from(atob(pem), c => c.charCodeAt(0));
+  const chave = await crypto.subtle.importKey('pkcs8', bin,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const assin = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', chave,
+    new TextEncoder().encode(cab + '.' + corpo));
+  const jwt = cab + '.' + corpo + '.' + b64url(assin);
+  const r = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: 'grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=' + jwt,
+  });
+  if (!r.ok) throw new Error('Google recusou o token: ' + r.status);
+  return (await r.json()).access_token;
+}
+
+/* Cabeçalho esperado, em qualquer ordem e sem diferenciar acento:
+   data | descricao | valor | tipo | empresa | categoria | vencimento | pago em */
+const COLUNAS = {
+  data: ['data', 'competencia', 'competência'],
+  descricao: ['descricao', 'descrição', 'historico', 'histórico', 'lancamento', 'lançamento'],
+  valor: ['valor'],
+  tipo: ['tipo', 'entrada/saida', 'e/s'],
+  empresa: ['empresa', 'operacao', 'operação', 'unidade'],
+  categoria: ['categoria', 'conta', 'plano de contas'],
+  vencimento: ['vencimento', 'vence em'],
+  pagoEm: ['pago em', 'pagoem', 'pagamento', 'baixa'],
+  rateio: ['rateio'],
+};
+const semAcento = t => (t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+function mapaColunas(cabecalho) {
+  const m = {};
+  cabecalho.forEach((c, i) => {
+    const limpo = semAcento(c);
+    for (const [campo, nomes] of Object.entries(COLUNAS)) {
+      if (nomes.some(n => semAcento(n) === limpo)) m[campo] = i;
+    }
+  });
+  return m;
+}
+function numeroBR(v) {
+  if (typeof v === 'number') return v;
+  const t = String(v || '').replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.');
+  const n = parseFloat(t);
+  return isNaN(n) ? 0 : n;
+}
+function dataBR(v) {
+  const t = String(v || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
+  const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (!m) return '';
+  const ano = m[3].length === 2 ? '20' + m[3] : m[3];
+  return ano + '-' + String(+m[2]).padStart(2, '0') + '-' + String(+m[1]).padStart(2, '0');
+}
+const OPS = { izi: ['izi', 'izi imoveis', 'imoveis'], paineis: ['paineis', 'bj7 paineis', 'painel'],
+  stone: ['stone', 'consultoria', 'bj7 consultoria'], incorp: ['incorporacao', 'incorporadora'],
+  casas: ['izi casas', 'casas', 'temporada'], corp: ['corporativo', 'grupo', 'holding'] };
+function operacaoDe(v) {
+  const t = semAcento(v);
+  if (!t) return 'corp';
+  for (const [id, nomes] of Object.entries(OPS)) if (nomes.some(n => t.includes(n))) return id;
+  return 'corp';
+}
+function rateioDe(v) {
+  /* aceita "izi 60, paineis 40" ou "izi:60;paineis:40" */
+  const out = {};
+  String(v || '').split(/[,;]/).forEach(p => {
+    const m = p.match(/([^\d:%]+)[:\s]+(\d{1,3})/);
+    if (m) out[operacaoDe(m[1])] = +m[2];
+  });
+  return out;
+}
+
+async function lerSheets(env) {
+  if (!env.GOOGLE_SA || !env.SHEETS_ID) {
+    return { ligado: false, motivo: 'GOOGLE_SA e SHEETS_ID não configurados' };
+  }
+  const token = await tokenGoogle(env);
+  const faixa = env.SHEETS_FAIXA || 'A:Z';
+  const u = 'https://sheets.googleapis.com/v4/spreadsheets/' + env.SHEETS_ID
+    + '/values/' + encodeURIComponent(faixa) + '?valueRenderOption=UNFORMATTED_VALUE';
+  const r = await fetch(u, { headers: { Authorization: 'Bearer ' + token } });
+  if (!r.ok) throw new Error('Sheets devolveu ' + r.status);
+  const linhas = (await r.json()).values || [];
+  if (!linhas.length) return { ligado: true, lancamentos: [], aviso: 'planilha vazia' };
+  const col = mapaColunas(linhas[0]);
+  const faltando = ['data', 'descricao', 'valor'].filter(c => col[c] === undefined);
+  if (faltando.length) {
+    return { ligado: true, lancamentos: [],
+      aviso: 'a planilha precisa das colunas ' + faltando.join(', ') };
+  }
+  const lancamentos = linhas.slice(1).filter(l => l.length).map((l, i) => {
+    const val = numeroBR(l[col.valor]);
+    const tipoTxt = semAcento(l[col.tipo]);
+    const tipo = tipoTxt ? (/(entrada|receita|credito|\+)/.test(tipoTxt) ? 'entrada' : 'saida')
+      : (val >= 0 ? 'entrada' : 'saida');
+    return {
+      id: 'sh' + i,
+      descricao: String(l[col.descricao] || ''),
+      valor: Math.abs(val),
+      tipo,
+      competencia: dataBR(l[col.data]),
+      vencimento: col.vencimento !== undefined ? dataBR(l[col.vencimento]) : '',
+      pagoEm: col.pagoEm !== undefined ? dataBR(l[col.pagoEm]) : '',
+      categoria: col.categoria !== undefined ? String(l[col.categoria] || '') : '',
+      op: col.empresa !== undefined ? operacaoDe(l[col.empresa]) : 'corp',
+      rateio: col.rateio !== undefined ? rateioDe(l[col.rateio]) : {},
+      origem: 'sheets',
+    };
+  }).filter(l => l.descricao || l.valor);
+  return { ligado: true, lancamentos };
 }
 
 /* ---------- servidor ---------- */
