@@ -250,6 +250,12 @@ button.lnk:active{color:var(--teal)}
 .cl.mais::before{content:"+";position:absolute;margin-left:-14px;color:var(--faint)}
 .cl.tot{border-bottom:0;background:#FAFBF9;font-weight:500;color:var(--ink);border-top:1px solid var(--rule2)}
 .cl.tot span{color:var(--teal)}
+h2 .mini{font-weight:400;font-size:12px;color:var(--faint);margin-left:8px;letter-spacing:0}
+.issue{display:flex;gap:10px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--rule)}
+.issue.top3{background:var(--ochre-bg);margin:0 -12px;padding:12px;border-radius:8px;border-bottom:0}
+.issue .pri{width:34px;flex:none;background:none;border:0;font-size:17px;cursor:pointer;
+ color:var(--ochre);line-height:1.2}
+.issue .ic{flex:1;min-width:0}
 .tarefa{display:flex;gap:10px;align-items:stretch;margin-bottom:7px}
 .tarefa.feito{opacity:.45}
 .tarefa.feito .tt{text-decoration:line-through}
@@ -530,8 +536,11 @@ function calcular(){
  negocios.forEach(x=> t[x.temp]++);
 
  /* série diária dentro da janela */
- const datas = []; 
- for(let i=0, d=new Date(PER.ini+'T12:00:00'); i<400 && d.toISOString().slice(0,10)<=PER.fim; i++,
+ /* A série começa onde existe registro de atividade: antes disso seriam centenas
+    de barras vazias, que não são ausência de trabalho e sim ausência de dado. */
+ const serieIni = PER.ini > COB.ativDe ? PER.ini : COB.ativDe;
+ const datas = [];
+ for(let i=0, d=new Date(serieIni+'T12:00:00'); i<1200 && d.toISOString().slice(0,10)<=PER.fim; i++,
      d.setDate(d.getDate()+1)) datas.push(d.toISOString().slice(0,10));
  const fds = datas.map(q => [0,6].includes(new Date(q+'T12:00:00').getDay()) ? 1 : 0);
  const diario = {};
@@ -1131,6 +1140,7 @@ function raioX(n){
   objAtrasados: objs.filter(o=>o.prazo && o.prazo < HOJE).length,
   compAbertos: comp.length,
   compAtrasados: comp.filter(c=>c.quando && c.quando < HOJE).length,
+  pauta: ((dados.pauta||{})[n]||[]).filter(t=>!t.usado && (t.texto||'').trim()).length,
  };
 }
 
@@ -1196,6 +1206,8 @@ function viewPessoas(m){
    {k:'objetivos', h:'Objetivos', r:1, f:x=> x.objetivos
      ? x.objetivos+(x.objAtrasados? '<div class="mini warn">'+x.objAtrasados+' vencido</div>':'')
      : '<span class="mini warn">nenhum</span>'},
+   {k:'pauta', h:'Pauta do 1:1', r:1, f:x=> x.pauta
+     ? '<b>'+x.pauta+'</b><div class="mini">assuntos guardados</div>' : '—'},
    {k:'compAbertos', h:'Combinados', r:1, f:x=> x.compAbertos
      ? x.compAbertos+(x.compAtrasados? '<div class="mini warn">'+x.compAtrasados+' fora do prazo</div>':'')
      : '—'},
@@ -1311,12 +1323,91 @@ function blocoObjetivos(host, n){
  pinta();
 }
 
+/* Ideia do Lattice: a pauta do 1:1 não nasce na hora da reunião. Ela é
+   construída entre uma e outra, pelos dois lados. E o feedback fica registrado
+   com data, senão vira memória seletiva na hora da avaliação. */
+function blocoPauta(host, n){
+ dados.pauta = dados.pauta || {};
+ dados.pauta[n] = dados.pauta[n] || [];
+ host.append(el('<h4 class="sec">Pauta do próximo 1:1</h4>'));
+ host.append(el('<p class="mini">Anote durante a semana, enquanto acontece. Na reunião você só passa '
+  +'a lista — é o que impede o 1:1 de virar conversa sobre o que lembrou na hora.</p>'));
+ const px = el('<div></div>'); host.append(px);
+ const pinta = () => {
+  px.innerHTML='';
+  const l = dados.pauta[n].filter(x=>!x.usado);
+  if(!l.length) px.append(el('<div class="empty">Nada anotado ainda.</div>'));
+  l.forEach(t=>{
+   const li = el('<div class="comp">'
+    +'<button class="chk" title="Já conversamos">'+(t.usado?'✓':'')+'</button>'
+    +'<div class="cp"><input class="search cpo" placeholder="Assunto para levar">'
+    +'<div class="cpb"><span class="mini">anotado em '+dbr(t.criado)+'</span>'
+    +'<span class="tag '+(t.de==='eu'?'t-teal':'t-ochre')+'">'+(t.de==='eu'?'meu':'dele')+'</span></div></div>'
+    +'<button class="btn ghost sm" data-del>Remover</button></div>');
+   const o=li.querySelector('.cpo'); o.value=t.texto||'';
+   o.oninput=()=>{ t.texto=o.value; salvar(); };
+   li.querySelector('.chk').onclick=()=>{ t.usado=HOJE; salvar(); pinta(); };
+   li.querySelector('[data-del]').onclick=()=>{
+    dados.pauta[n]=dados.pauta[n].filter(z=>z!==t); salvar(); pinta(); };
+   px.append(li);
+  });
+  const ac = el('<div class="actions" style="padding-top:10px">'
+   +'<button class="btn ghost sm" data-meu>Assunto meu</button>'
+   +'<button class="btn ghost sm" data-dele>Assunto dele</button></div>');
+  ac.querySelector('[data-meu]').onclick = () => { dados.pauta[n].push({texto:'', de:'eu',
+    criado:HOJE}); salvar(); pinta(); };
+  ac.querySelector('[data-dele]').onclick = () => { dados.pauta[n].push({texto:'', de:'ele',
+    criado:HOJE}); salvar(); pinta(); };
+  px.append(ac);
+ };
+ pinta();
+}
+
+function blocoFeedback(host, n){
+ dados.feedback = dados.feedback || {};
+ dados.feedback[n] = dados.feedback[n] || [];
+ host.append(el('<h4 class="sec">Feedback registrado</h4>'));
+ host.append(el('<p class="mini">Com data. Na hora da avaliação você tem fato, não impressão — e o '
+  +'elogio conta tanto quanto a correção.</p>'));
+ const fx = el('<div></div>'); host.append(fx);
+ const pinta = () => {
+  fx.innerHTML='';
+  const l = [...dados.feedback[n]].sort((a,b)=> a.data < b.data ? 1 : -1);
+  if(!l.length) fx.append(el('<div class="empty">Nenhum feedback registrado.</div>'));
+  l.forEach(f=>{
+   const li = el('<div class="comp">'
+    +'<span class="tag '+(f.tipo==='elogio'?'t-teal':'t-clay')
+    +'" style="margin:6px 0 0">'+(f.tipo==='elogio'?'Elogio':'A corrigir')+'</span>'
+    +'<div class="cp"><textarea rows="2" placeholder="O que aconteceu e que efeito teve"></textarea>'
+    +'<div class="cpb"><span class="mini">'+dbr(f.data)+'</span></div></div>'
+    +'<button class="btn ghost sm" data-del>Remover</button></div>');
+   const ta=li.querySelector('textarea'); ta.value=f.texto||'';
+   ta.oninput=()=>{ f.texto=ta.value; salvar(); };
+   li.querySelector('[data-del]').onclick=()=>{
+    dados.feedback[n]=dados.feedback[n].filter(z=>z!==f); salvar(); pinta(); };
+   fx.append(li);
+  });
+  const ac = el('<div class="actions" style="padding-top:10px">'
+   +'<button class="btn ghost sm" data-e>Registrar elogio</button>'
+   +'<button class="btn ghost sm" data-c>Registrar correção</button></div>');
+  ac.querySelector('[data-e]').onclick = () => { dados.feedback[n].unshift({tipo:'elogio',
+    texto:'', data:HOJE}); salvar(); pinta(); };
+  ac.querySelector('[data-c]').onclick = () => { dados.feedback[n].unshift({tipo:'correcao',
+    texto:'', data:HOJE}); salvar(); pinta(); };
+  fx.append(ac);
+ };
+ pinta();
+}
+
 function bloco1a1(host, n){
  const meus = (dados.reunioes||[]).filter(r=>(r.pessoas||[]).includes(n))
    .sort((a,b)=> a.data < b.data ? 1 : -1);
  const abertosN = meus.flatMap(r=>(r.comp||[]).filter(c=>!c.feito && (!c.quem || c.quem===n)));
 
+ blocoPauta(host, n);
+ blocoFeedback(host, n);
  host.append(el('<h4 class="sec">Plano de desenvolvimento</h4>'));
+ dados.pdi = dados.pdi || {};
  dados.pdi[n] = dados.pdi[n] || {};
  PDI.forEach(([k,rot])=>{
   host.append(el('<label for="pdi-'+n+'-'+k+'">'+rot+'</label>'));
@@ -1484,7 +1575,7 @@ const mediana = a => { if(!a.length) return 0; const b=[...a].sort((x,y)=>x-y);
 function viewUnidade(m, nome, funis){
  const N = V.negocios.filter(x => funis.includes(x.f));
  const semContato = N.filter(x=>!x.r0);
- const semNota = N.filter(x=>!x.s);
+ const semNota = N.filter(x=>!x.s && x.r0>0);
  const semCliente = N.filter(x=>!x.cl);
  const paradosMed = mediana(N.map(x=>x.p));
 
@@ -1498,7 +1589,7 @@ function viewUnidade(m, nome, funis){
  const conjuntos = {
   '':   [N, 'negócios abertos'],
   'sc': [semContato, 'sem nenhum contato no período'],
-  'sa': [semNota, 'sem uma linha escrita'],
+  'sa': [semNota, 'receberam contato no período mas ninguém escreveu nada'],
   'sp': [semCliente, 'sem pessoa vinculada — não dá para ligar'],
  };
  const pinta = () => {
@@ -1508,7 +1599,7 @@ function viewUnidade(m, nome, funis){
    {b:paradosMed+'d', s:'dias parado, mediana da unidade'},
    {b:nf(semContato.length), s:'negócios sem nenhum contato no período', on:fc==='sc',
     click:()=>{ fc = fc==='sc'?'x':'sc'; pinta(); }},
-   {b:nf(semNota.length), s:'negócios sem uma linha escrita', on:fc==='sa',
+   {b:nf(semNota.length), s:'contatados sem uma linha escrita', on:fc==='sa',
     click:()=>{ fc = fc==='sa'?'x':'sa'; pinta(); }}]));
   listaBox.innerHTML='';
   if(fc !== 'x'){
@@ -1684,48 +1775,80 @@ function tabelaUnidade(host, itens){
 
 
 /* ---------------- gráfico do mês ---------------- */
+/* Em 600 dias, uma barra por dia vira poeira. Acima de 90 dias o gráfico passa
+   a agregar por semana; acima de 400, por mês. A leitura muda junto. */
+function granularidade(){
+ const n = dif(PER.ini, PER.fim) + 1;
+ return n <= 90 ? 'dia' : n <= 400 ? 'semana' : 'mes';
+}
+function agrupaSerie(n){
+ const g = granularidade();
+ const dts = V.diario.datas, v = V.diario.p[n].neg, fds = V.diario.fds;
+ if(g === 'dia') return {g, rotulos:dts, valores:v, fds,
+   titulo:'Uma barra por dia. Fim de semana em faixa cinza.'};
+ const balde = {};
+ dts.forEach((d,i)=>{
+  let k;
+  if(g==='semana'){ const dd = new Date(d+'T12:00:00');
+   dd.setDate(dd.getDate() - ((dd.getDay()+6)%7)); k = dd.toISOString().slice(0,10); }
+  else k = d.slice(0,7);
+  balde[k] = (balde[k]||0) + v[i];
+ });
+ const ks = Object.keys(balde).sort();
+ return {g, rotulos:ks, valores:ks.map(k=>balde[k]), fds:ks.map(()=>false),
+   titulo: g==='semana' ? 'Uma barra por semana, somando os negócios trabalhados em cada uma.'
+     : 'Uma barra por mês, somando os negócios trabalhados no mês.'};
+}
+
 function grafico(host, metrica){
- const dts = V.diario.datas, fds = V.diario.fds;
- const max = Math.max(1, ...NOMES.flatMap(n => V.diario.p[n][metrica]));
  NOMES.forEach(n=>{
-  const v = V.diario.p[n][metrica];
+  const S = agrupaSerie(n);
+  const max = Math.max(1, ...NOMES.map(z=>Math.max(...agrupaSerie(z).valores, 0)));
   const p = V.pessoas[n];
   const bloco = el('<div class="chart"><div class="lbl"><span class="nm">'+n+'</span>'
-   +'<span class="stat num">'+p.tocados+' negócios · '+p.total+' atividades · '+p.dias+' dias com registro</span></div></div>');
+   +'<span class="stat num">'+p.tocados+' negócios · '+p.total+' atividades · '
+   +p.dias+' dias com registro</span></div></div>');
   const barras = el('<div class="dias"></div>');
   const leitura = el('<div class="leitura"></div>');
   const detalhe = el('<div></div>');
-  const uteis = v.filter((_,i)=>!fds[i]);
-  const vazios = uteis.filter(x=>!x).length;
-  const base = '<span class="lg"><i class="lg-u"></i>dia útil</span>'
-   + '<span class="lg"><i class="lg-f"></i>fim de semana</span> — '
-   + (vazios ? '<b>'+vazios+'</b> dia'+(vazios>1?'s':'')+' útil'+(vazios>1?'eis':'')
-       +' sem registro. Toque numa barra para abrir o dia.'
-     : 'nenhum dia útil em branco. Toque numa barra para abrir o dia.');
+  const vazios = S.valores.filter((y,i)=>!y && !S.fds[i]).length;
+  const base = S.g==='dia'
+   ? '<span class="lg"><i class="lg-u"></i>dia útil</span>'
+     +'<span class="lg"><i class="lg-f"></i>fim de semana</span> — '
+     + (vazios ? '<b>'+vazios+'</b> dia'+(vazios>1?'s':'')+' útil'+(vazios>1?'eis':'')
+        +' sem registro. Toque numa barra.' : 'nenhum dia útil em branco. Toque numa barra.')
+   : S.rotulos.length+(S.g==='semana'?' semanas':' meses')+' no período. Toque numa barra para abrir.';
   leitura.innerHTML = base;
 
-  v.forEach((y,i)=>{
+  S.valores.forEach((y,i)=>{
    const h = y ? Math.max(y/max*100, 4) : 3;
-   const b = el('<button class="dia'+(y?'':' zero')+(fds[i]?' fds':'')+'" '
-     +'aria-label="'+dts[i].slice(8,10)+'/'+dts[i].slice(5,7)+': '+y+'">'
-     +'<span class="b" style="height:'+h+'%"></span></button>');
+   const rot = S.g==='dia' ? dbr(S.rotulos[i])
+     : S.g==='semana' ? 'semana de '+dbr(S.rotulos[i])
+     : (MES_LONGO[S.rotulos[i].slice(5,7)]||'')+' de '+S.rotulos[i].slice(0,4);
+   const b = el('<button class="dia'+(y?'':' zero')+(S.fds[i]?' fds':'')+'" '
+     +'aria-label="'+esc(rot)+': '+y+'"><span class="b" style="height:'+h+'%"></span></button>');
    b.onclick = () => {
-    const jaAberto = b.classList.contains('sel');
+    const ja = b.classList.contains('sel');
     barras.querySelectorAll('.dia').forEach(x=>x.classList.remove('sel'));
     detalhe.innerHTML='';
-    if(jaAberto){ leitura.innerHTML = base; return; }
+    if(ja){ leitura.innerHTML = base; return; }
     b.classList.add('sel');
-    const dia = new Date(dts[i]+'T12:00:00');
-    const sem = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'][dia.getDay()];
-    const doDia = V.A.filter(x=>x.a===n && x.q===dts[i]);
-    const negs = new Set(doDia.filter(x=>x.i).map(x=>x.i)).size;
-    leitura.innerHTML = '<b>'+dts[i].slice(8,10)+'/'+dts[i].slice(5,7)+', '+sem+'</b> — '
-      + (doDia.length ? negs+' negócios em '+doDia.length+' atividades'
-         : (fds[i] ? 'fim de semana, sem registro' : 'nenhum registro neste dia útil'));
-    if(doDia.length){
-     tabela(detalhe, doDia.map(x=>({...x, cl:(fichaDe(x.i)||{}).cl||''})), [
-      {k:'h', h:'Hora', f:x=> x.h || '—'},
-      {k:'t', h:'Canal', f:x=>'<span class="tag '+(REAL.includes(x.t)?'t-teal':'t-gray')+'">'+esc(x.t)+'</span>'},
+    const de = S.rotulos[i];
+    const ate = S.g==='dia' ? de
+      : S.g==='semana' ? (()=>{ const d=new Date(de+'T12:00:00'); d.setDate(d.getDate()+6);
+          return d.toISOString().slice(0,10); })()
+      : new Date(+de.slice(0,4), +de.slice(5,7), 0).toISOString().slice(0,10);
+    const doPer = V.A.filter(x=>x.a===n && x.q>=de && x.q<=ate);
+    const negs = new Set(doPer.filter(x=>x.i).map(x=>x.i)).size;
+    leitura.innerHTML = '<b>'+esc(rot)+'</b> — '
+      + (doPer.length ? negs+' negócios em '+doPer.length+' atividades'
+         : (S.fds[i] ? 'fim de semana, sem registro' : 'nenhum registro'));
+    if(doPer.length){
+     tabela(detalhe, doPer.map(x=>({...x, cl:(fichaDe(x.i)||{}).cl||''})), [
+      {k:'q', h:'Quando', f:x=> x.q.slice(8,10)+'/'+x.q.slice(5,7)
+        +(x.h?'<div class="mini">'+x.h+'</div>':'')},
+      {k:'t', h:'Canal', f:x=>'<span class="tag '+(REAL.includes(x.t)?'t-teal':'t-gray')+'">'
+         +esc(x.t)+'</span>'},
       {k:'d', h:'Negócio', f:x=> x.i
         ? '<button type="button" class="lnk" data-id="'+x.i+'" data-t="'+esc(x.d)+'">'+esc(x.d)+'</button>'
         : '<span class="mini warn">solta</span>'},
@@ -1737,19 +1860,30 @@ function grafico(host, metrica){
    };
    barras.append(b);
   });
-  const rot = el('<div class="rot">'
-   + dts.map((q,i)=>'<span class="'+(fds[i]?'fds':'')+'">'
-       +(+q.slice(8,10)%2 ? q.slice(8,10) : '')+'</span>').join('') + '</div>');
-  bloco.append(barras, rot, leitura, detalhe);
+  const passo = Math.ceil(S.rotulos.length/12);
+  const rotEl = el('<div class="rot">'
+   + S.rotulos.map((q,i)=>'<span class="'+(S.fds[i]?'fds':'')+'">'
+      +(i % passo === 0 ? (S.g==='mes' ? q.slice(5,7)+'/'+q.slice(2,4)
+        : S.g==='semana' ? q.slice(8,10)+'/'+q.slice(5,7) : q.slice(8,10)) : '')
+      +'</span>').join('') + '</div>');
+  bloco.append(barras, rotEl, leitura, detalhe);
   host.append(bloco);
  });
 }
 
 function blocoGrafico(m){
  m.append(el('<h2>Esforço dia a dia</h2>'));
- m.append(el('<p class="lede">Uma barra por dia, contando os negócios trabalhados <b>naquele dia</b>. '
-  +'Um negócio trabalhado em três dias aparece nos três, mas conta uma vez só no total do mês — por isso a soma '
-  +'das barras é maior que o número de negócios distintos. Toque numa barra para ver as atividades do dia.</p>'));
+ const gr = granularidade();
+ m.append(el('<p class="lede">'
+  + (gr==='dia' ? 'Uma barra por dia, contando os negócios trabalhados naquele dia. '
+      +'Um negócio tocado em três dias aparece nos três, mas conta uma vez só no total — por isso a '
+      +'soma das barras é maior que o número de negócios distintos.'
+    : gr==='semana' ? 'O período é longo demais para uma barra por dia, então cada barra é uma <b>semana</b>.'
+    : 'O período cobre mais de um ano, então cada barra é um <b>mês</b>.')
+  + (V.diario.datas.length && V.diario.datas[0] > PER.ini
+     ? ' A série começa em '+dbr(V.diario.datas[0])+', que é quando o Pipedrive passa a ter '
+       +'atividade registrada.' : '')
+  + ' Toque numa barra para abrir o que foi feito.</p>'));
  const alvo = el('<div></div>');
  m.append(alvo);
  grafico(alvo, 'neg');
@@ -1919,15 +2053,18 @@ function viewLeitura(m){
   {b:cand.filter(x=>!x.resumo).length, s:'sem nada escrito para ler'}]));
 
  m.append(el('<h2>Ranking de chance de avançar</h2>'));
- const segQ = el('<div class="seg" style="margin-bottom:10px">'
-  +'<button class="on" data-q="15">Top 15</button><button data-q="40">Top 40</button>'
-  +'<button data-q="0">Todos</button></div>');
+ let fResp = '';
+ const segR = el('<div class="seg" style="flex-wrap:wrap;margin-bottom:10px">'
+  +'<button class="on" data-r="">Todos</button>'
+  + NOMES.map(n=>'<button data-r="'+esc(n)+'">'+esc(n)+'</button>').join('') + '</div>');
  const rk = el('<div></div>');
- m.append(segQ, rk);
- const pinta = q => {
-  segQ.querySelectorAll('button').forEach(b=>b.classList.toggle('on', +b.dataset.q===q));
+ m.append(segR, rk);
+ let mostra = 15;
+ const pinta = () => {
+  segR.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.r===fResp));
   rk.innerHTML='';
-  const lista = q ? cand.slice(0,q) : cand;
+  const base = cand.filter(x=>!fResp || x.d===fResp);
+  const lista = base.slice(0, mostra);
   if(!lista.length){ rk.append(el('<div class="empty">Nenhum negócio com atividade no período.</div>')); return; }
   lista.forEach((x,i)=>{
    linha(rk,
@@ -1957,8 +2094,17 @@ function viewLeitura(m){
     });
   });
  };
- segQ.querySelectorAll('button').forEach(b=>b.onclick=()=>pinta(+b.dataset.q));
- pinta(15);
+ const rodape = () => {
+  const base = cand.filter(x=>!fResp || x.d===fResp);
+  if(mostra < base.length){
+   const b = el('<button class="btn ghost maisbtn">Mostrar mais '
+     + Math.min(15, base.length-mostra) + ' de ' + nf(base.length-mostra) + ' restantes</button>');
+   b.onclick = () => { mostra += 15; pinta(); rodape(); };
+   rk.append(b);
+  }
+ };
+ segR.querySelectorAll('button').forEach(b=>b.onclick=()=>{ fResp=b.dataset.r; mostra=15; pinta(); rodape(); });
+ pinta(); rodape();
 
  /* --- por cliente --- */
  const porCli = {};
@@ -2263,13 +2409,9 @@ function viewAtividades(m){
   m.append(el('<h2>Mais trabalhados</h2>'));
   m.append(el('<p class="lede">Ranking por número de atividades no negócio. '
    +'Barra escura é contato real, clara é o resto. Toque para abrir a conversa.</p>'));
-  const segN = el('<div class="seg" style="margin-bottom:10px">'
-   +'<button class="on" data-n="10">Top 10</button><button data-n="25">Top 25</button>'
-   +'<button data-n="50">Top 50</button></div>');
   const rk = el('<div></div>');
-  m.append(segN, rk);
+  m.append(rk);
   const pintaRk = q => {
-   segN.querySelectorAll('button').forEach(b=>b.classList.toggle('on', +b.dataset.n===q));
    rk.innerHTML='';
    const lista = top.slice(0,q);
    const max = lista[0].n;
@@ -2287,8 +2429,17 @@ function viewAtividades(m){
     rk.append(b);
    });
   };
-  segN.querySelectorAll('button').forEach(b=>b.onclick=()=>pintaRk(+b.dataset.n));
-  pintaRk(10);
+  let mostra = 10;
+  const maisRk = () => {
+   pintaRk(mostra);
+   if(mostra < top.length){
+    const b = el('<button class="btn ghost maisbtn">Mostrar mais '
+      + Math.min(10, top.length-mostra) + ' de ' + nf(top.length-mostra) + ' restantes</button>');
+    b.onclick = () => { mostra += 10; maisRk(); };
+    rk.append(b);
+   }
+  };
+  maisRk();
  }
 
  m.append(el('<h2>Lista</h2>'));
@@ -3261,77 +3412,79 @@ function campoLivre(m, k, rot, ph){
  m.append(ta);
 }
 
+/* Estrutura do Level 10 Meeting (EOS/Traction), adaptada à matinal da casa:
+   abertura, placar, objetivos, notícias, combinados, problemas e nota.
+   O que faz a reunião funcionar não são os blocos: é que problema vira
+   combinado com dono e prazo, e que a reunião se avalia no fim.            */
+const issues = () => (dados.issues||[]).filter(i => EMP.id==='grupo' || i.emp===EMP.id);
+const issuesAbertas = () => issues().filter(i=>!i.resolvido);
+
 function viewMatinal(m){
  const [si, sf] = semanaAtual(), [mi, mf] = mesAtual();
- m.append(el('<p class="lede">A reunião segue sempre a mesma ordem: dinâmica, rotina, resultados, '
-  +'aprendizados e compromissos. O que você escrever fica salvo e entra na apresentação.</p>'));
+ m.append(el('<p class="lede">Sempre a mesma ordem, sempre o mesmo tempo. O bloco que decide a reunião '
+  +'é o de <b>problemas</b>: nada sai dali sem virar combinado com dono e prazo.</p>'));
 
- m.append(el('<h2>1 · Dinâmica</h2>'));
- m.append(el('<p class="lede">Começa pelo humano. Qual foi a de hoje e o que apareceu nela.</p>'));
- campoLivre(m,'dinamica','Qual foi a dinâmica','uma frase basta');
- campoLivre(m,'dinamicaNotas','O que apareceu','');
+ /* 1 — abertura */
+ m.append(el('<h2>1 · Abertura <span class="mini">5 min</span></h2>'));
+ m.append(el('<p class="lede">Uma boa notícia de cada um, pessoal ou do trabalho. Serve para a reunião '
+  +'não começar cobrando.</p>'));
+ campoLivre(m,'dinamica','Dinâmica de hoje','qual foi');
+ campoLivre(m,'boasNoticias','Boas notícias da rodada','');
 
- m.append(el('<h2>2 · Rotina</h2>'));
- m.append(el('<p class="lede">Fechamento do dia anterior, calculado do Pipedrive. Ninguém digita.</p>'));
- const dias = [...new Set(D.ativ.filter(ativNoEscopo).map(x=>x.q))].sort().reverse();
- let diaSel = dias[0];
- const selD = el('<select class="selmes" aria-label="Dia">'
-  + dias.slice(0,60).map(q=>'<option value="'+q+'">'+dbr(q)+'</option>').join('') + '</select>');
- const fbox = el('<div style="margin-top:10px"></div>');
- m.append(selD, fbox);
- const pintaF = () => {
-  fbox.innerHTML='';
-  fbox.append(el('<div class="conv"><span class="mini">Pessoa</span><span class="h">Negócios</span>'
-   +'<span class="h">Contatos</span><span class="h">Pontos</span></div>'));
-  fechamentoDia(diaSel).forEach(f=>{
-   const p = pontosDe(f.n, diaSel, diaSel);
-   fbox.append(el('<div class="conv"><span class="nm">'+f.n+'</span>'
-    +'<span class="v'+(f.trab?'':' warn')+'">'+f.trab+'</span>'
-    +'<span class="v'+(f.cont?'':' warn')+'">'+f.cont+'</span>'
-    +'<span class="v">'+nf(p.total)+'</span></div>'));
+ /* 2 — placar */
+ m.append(el('<h2>2 · Placar <span class="mini">5 min</span></h2>'));
+ m.append(el('<p class="lede">Pontos da semana contra a meta. Verde é no rumo, vermelho é fora — '
+  +'e fora do rumo vira problema no bloco 6, não discussão aqui.</p>'));
+ const placar = blocoPontos(m, si, sf, 'a semana', 'semana');
+ const foraDoRumo = placar.filter(x=>x.meta && x.total < x.meta);
+ if(foraDoRumo.length) m.append(el('<p class="lede"><b>'+foraDoRumo.length
+   +(foraDoRumo.length===1?' pessoa está':' pessoas estão')+' fora do rumo:</b> '
+   + foraDoRumo.map(x=>esc(x.n)).join(', ')+'. Leve para o bloco de problemas.</p>'));
+
+ /* 3 — objetivos */
+ m.append(el('<h2>3 · Objetivos <span class="mini">5 min</span></h2>'));
+ const objs = (dados.okrs||[]).filter(o=>(o.objetivo||'').trim() && NOMES.filter(ativo).includes(o.quem));
+ if(!objs.length) m.append(el('<div class="empty">Nenhum objetivo definido. '
+   +'Sem objetivo, a matinal vira só rotina.</div>'));
+ else {
+  const bx = el('<div></div>');
+  objs.forEach(o=>{
+   const atras = o.prazo && o.prazo < HOJE && o.status!=='concluido';
+   const noRumo = o.status==='concluido' || (o.progresso||0) >= 50;
+   bx.append(el('<div class="conv" style="grid-template-columns:1fr auto">'
+    +'<div><span class="nm">'+esc(o.objetivo)+'</span><div class="sub">'+esc(o.quem)
+    +(o.kr? ' · '+esc(o.kr):'')+(o.prazo? ' · até '+dbr(o.prazo):'')+'</div></div>'
+    +'<span class="'+(noRumo && !atras ? 'mini':'warn')+'">'+(o.progresso||0)+'%'
+    +(atras? ' · vencido':'')+'</span></div>'));
   });
- };
- selD.onchange = () => { diaSel = selD.value; pintaF(); };
- if(dias.length) pintaF(); else fbox.append(el('<div class="empty">Sem atividade registrada.</div>'));
+  m.append(bx);
+ }
 
- m.append(el('<h2>3 · Resultados</h2>'));
- m.append(el('<p class="lede">Realizado contra planejado, em pontos. Abra a pessoa para ver de onde '
-  +'os pontos vieram.</p>'));
- m.append(el('<h4 class="sec">Semana, de '+dbr(si)+' a '+dbr(sf)+'</h4>'));
- blocoPontos(m, si, sf, 'a semana', 'semana');
- m.append(el('<h4 class="sec">Mês de '+(MES_LONGO[mi.slice(5,7)]||'')+'</h4>'));
- blocoPontos(m, mi, mf, 'o mês', 'mes');
+ /* 4 — notícias */
+ m.append(el('<h2>4 · Notícias <span class="mini">5 min</span></h2>'));
+ m.append(el('<p class="lede">Cliente e time. Só o fato, sem discussão — o que precisar virar assunto '
+  +'vai para problemas.</p>'));
+ campoLivre(m,'noticiasCliente','De cliente','ganhou, perdeu, reclamou, elogiou');
+ campoLivre(m,'noticiasTime','Do time','entrou, saiu, férias, aniversário');
 
- const q = V.negocios.filter(x=>x.temp==='quente');
- m.append(el('<h4 class="sec">Perguntar pelo nome</h4>'));
- if(q.length){
-  m.append(el('<p class="mini">'+q.length+' negócios quentes. Um por um, na rodada individual.</p>'));
-  tabela(m, q, [
-   {k:'t', h:'Negócio', f:x=>'<button type="button" class="lnk" data-id="'+x.id+'" data-t="'+esc(x.t)+'">'
-     +esc(x.t)+'</button>'},
-   {k:'cl', h:'Cliente', f:x=> x.cl ? esc(x.cl) : '<span class="mini warn">sem pessoa</span>'},
-   {k:'d', h:'Com quem'},
-   {k:'p', h:'Parado', r:1, f:x=>x.p+' d'},
-   {k:'s', h:'Situação', f:x=> x.s ? '<span class="sit">'+esc(x.s)+'</span>'
-     : '<span class="mini warn">nada escrito</span>'},
-  ], '', 'quentes');
- } else m.append(el('<div class="empty">Nenhum negócio quente. A rodada vira cobrança de cadência.</div>'));
-
- m.append(el('<h2>4 · Aprendizados</h2>'));
- m.append(el('<p class="lede">O que a semana ensinou. Sem isso a reunião vira só cobrança.</p>'));
- campoLivre(m,'aprendizados','O que aprendemos','de venda perdida, de cliente, de processo');
- campoLivre(m,'ajustes','O que vamos mudar por causa disso','');
-
- m.append(el('<h2>5 · Compromissos</h2>'));
+ /* 5 — combinados da rodada anterior */
  const ab = compromissosAbertos();
+ const pendMod = pendencias().filter(x=>x.quando && x.quando <= HOJE);
+ const totalComp = (dados.reunioes||[]).flatMap(r=>r.comp||[]).length;
+ const feitosComp = (dados.reunioes||[]).flatMap(r=>r.comp||[]).filter(c=>c.feito).length;
+ const taxa = totalComp ? Math.round(feitosComp/totalComp*100) : null;
+ m.append(el('<h2>5 · Combinados <span class="mini">5 min</span></h2>'));
+ m.append(el('<p class="lede">'+(taxa===null
+   ? 'Nenhum combinado registrado ainda.'
+   : '<b>'+taxa+'%</b> dos combinados foram concluídos. Abaixo de 90% o problema não é o time, '
+     +'é o que está sendo combinado: ou demais, ou sem dono, ou sem prazo.')+'</p>'));
  if(ab.length){
-  m.append(el('<p class="lede">Vindos das reuniões, ainda em aberto.</p>'));
   const bx = el('<div></div>');
   ab.forEach(x=>{
    const atras = x.c.quando && x.c.quando < HOJE;
    const l = el('<div class="conv" style="grid-template-columns:1fr auto auto;gap:10px">'
     +'<div><span class="nm">'+esc(x.c.oque||'(sem descrição)')+'</span>'
-    +'<div class="sub">'+esc(x.c.quem||'sem dono')+'</div></div>'
+    +'<div class="sub">'+esc(x.c.quem||'<span class="warn">sem dono</span>')+'</div></div>'
     +'<span class="'+(atras?'warn':'mini')+'">'+(x.c.quando? dbr(x.c.quando):'sem prazo')+'</span>'
     +'<button class="btn ghost sm">Feito</button></div>');
    l.querySelector('button').onclick = () => { x.c.feito = true; salvar(); render(); };
@@ -3339,11 +3492,77 @@ function viewMatinal(m){
   });
   m.append(bx);
  }
- campoLivre(m,'compromissos','O que combinamos hoje','quem faz o quê até quando');
- campoLivre(m,'travas','O que está travando','');
+ if(pendMod.length){
+  m.append(el('<h4 class="sec">Vencido nos módulos</h4>'));
+  const bx2 = el('<div></div>');
+  pendMod.forEach(x=> bx2.append(el('<div class="conv" style="grid-template-columns:1fr auto">'
+   +'<div><span class="nm">'+esc(x.o)+'</span><div class="sub">'+esc(x.onde)
+   +(x.quem? ' · '+esc(x.quem):'')+'</div></div><span class="warn">'+dbr(x.quando)+'</span></div>')));
+  m.append(bx2);
+ }
 
+ /* 6 — problemas, o coração da reunião */
+ m.append(el('<h2>6 · Problemas <span class="mini">o resto do tempo</span></h2>'));
+ m.append(el('<p class="lede">Lista tudo, escolhe os três que mais doem, resolve um de cada vez. '
+  +'Resolver significa <b>virar combinado com dono e prazo</b> — senão volta na semana seguinte.</p>'));
+ const addI = el('<div class="addbar"><input class="search" placeholder="Qual é o problema… e Enter" '
+  +'aria-label="Novo problema"><button class="btn">Adicionar</button></div>');
+ const inpI = addI.querySelector('input');
+ const criarI = () => {
+  const t = inpI.value.trim(); if(!t) return;
+  dados.issues = dados.issues || [];
+  dados.issues.unshift({id:'i'+Date.now(), emp: EMP.id==='grupo'?'grupo':EMP.id,
+    texto:t, criado:HOJE, prioridade:0, resolvido:false});
+  inpI.value=''; salvar(); render();
+ };
+ inpI.onkeydown = e => { if(e.key==='Enter') criarI(); };
+ addI.querySelector('button').onclick = criarI;
+ m.append(addI);
+
+ const abertas = issuesAbertas().sort((a,b)=> (b.prioridade||0)-(a.prioridade||0)
+   || (a.criado < b.criado ? -1 : 1));
+ const bxI = el('<div style="margin-top:12px"></div>');
+ if(!abertas.length) bxI.append(el('<div class="empty">Nenhum problema na lista. '
+   +'Se a reunião não tem problema, ou está tudo perfeito ou ninguém está falando.</div>'));
+ abertas.forEach((it,idx)=>{
+  const li = el('<div class="issue'+(idx<3?' top3':'')+'">'
+   +'<button class="pri" title="Priorizar">'+(it.prioridade? '★':'☆')+'</button>'
+   +'<div class="ic"><span class="nm">'+esc(it.texto)+'</span>'
+   +'<div class="sub">'+(idx<3? 'entre os três da rodada · ':'')+'aberto desde '+dbr(it.criado)
+   +(it.idade? '' : '')+' · '+dif(it.criado, HOJE)+' dias</div></div>'
+   +'<button class="btn ghost sm" data-res>Resolvido</button></div>');
+  li.querySelector('.pri').onclick = () => { it.prioridade = it.prioridade? 0 : 1; salvar(); render(); };
+  li.querySelector('[data-res]').onclick = () => {
+   const t = prompt('O que ficou combinado para resolver isso? Deixe vazio para só marcar resolvido.');
+   if(t){
+    dados.reunioes = dados.reunioes || [];
+    let r = dados.reunioes.find(z=>z.data===HOJE && z.tipo==='operacional');
+    if(!r){ r = novaReuniao('operacional'); r.assunto='Matinal'; dados.reunioes.unshift(r); }
+    r.comp = r.comp || [];
+    r.comp.push({oque:t, quem:'', quando:'', feito:false});
+   }
+   it.resolvido = HOJE; salvar(); render();
+  };
+  bxI.append(li);
+ });
+ m.append(bxI);
+ const resolvidas = issues().filter(i=>i.resolvido);
+ if(resolvidas.length) m.append(el('<p class="mini" style="margin-top:10px">'+resolvidas.length
+   +' problema'+(resolvidas.length>1?'s':'')+' já resolvido'+(resolvidas.length>1?'s':'')+'.</p>'));
+
+ /* 7 — encerramento */
+ m.append(el('<h2>7 · Encerramento <span class="mini">5 min</span></h2>'));
+ campoLivre(m,'recado','O que precisa ser dito para quem não estava','a mensagem que sobe e desce');
+ campoLivre(m,'aprendizados','O que aprendemos','');
+ m.append(el('<label for="nota">Nota da reunião, de 1 a 10<i>abaixo de 8, diga o que faltou</i></label>'));
+ const nt = el('<input type="number" min="1" max="10" class="search" id="nota" style="max-width:110px">');
+ nt.value = dados.notaReuniao || '';
+ nt.oninput = () => { dados.notaReuniao = nt.value; salvar(); };
+ m.append(nt);
+ campoLivre(m,'notaPorque','Por que essa nota','');
+
+ /* metas e pesos */
  m.append(el('<h2>Metas de pontos</h2>'));
- m.append(el('<p class="lede">Quantos pontos cada um precisa somar por semana e por mês.</p>'));
  NOMES.filter(ativo).forEach(n=>{
   const mt = metaPontos(n);
   const row = el('<div class="meta-row"><div><span class="nm">'+esc(n)+'</span>'
@@ -3359,9 +3578,7 @@ function viewMatinal(m){
   a.oninput = grava; b.oninput = grava;
   m.append(row);
  });
-
  m.append(el('<h2>Quanto vale cada coisa</h2>'));
- m.append(el('<p class="lede">O peso de cada atividade. Mudou aqui, todos os pontos recalculam.</p>'));
  const pc = pontosCfg(), ex = extraCfg();
  Object.keys(pc).forEach(k=>{
   m.append(el('<label for="pt-'+k+'">'+esc(k)+'</label>'));
