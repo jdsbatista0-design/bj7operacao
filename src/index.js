@@ -198,13 +198,14 @@ export async function montar(env) {
   }
 
   /* fontes externas: falha de uma não pode derrubar a sincronização das outras */
-  const [trelloR, sheetsR] = await Promise.all([
+  const [trelloR, reunioesR, sheetsR] = await Promise.all([
     lerTrello(env).catch(e => ({ ligado: false, erro: String(e.message || e) })),
+    lerReunioesTrello(env).catch(e => ({ ligado: false, erro: String(e.message || e) })),
     lerSheets(env).catch(e => ({ ligado: false, erro: String(e.message || e) })),
   ]);
 
   return {
-    trello: trelloR, sheets: sheetsR,
+    trello: trelloR, trelloReunioes: reunioesR, sheets: sheetsR,
     negocios, resultado, ativ, mortas: MORTAS, hoje,
     janela: { ini: crs[0] || hoje, fim: hoje },
     meses,
@@ -287,7 +288,39 @@ async function lerTrello(env) {
     link: c.shortUrl || '',
     origem: 'trello',
   }));
-  return { ligado: true, tarefas, listas: listas.map(l => l.name) };
+  return { ligado: true, tarefas, listas: listas.map(l => l.name), board: env.TRELLO_BOARD };
+}
+
+/* Reuniões: um quadro separado, um cartão por reunião.
+   A descrição é a ata; cada item de checklist é um combinado, e item marcado é
+   combinado cumprido. */
+async function lerReunioesTrello(env) {
+  if (!env.TRELLO_KEY || !env.TRELLO_TOKEN || !env.TRELLO_BOARD_REUNIOES) {
+    return { ligado: false, motivo: 'TRELLO_BOARD_REUNIOES não configurado' };
+  }
+  const [listas, cartoes, membros] = await Promise.all([
+    trello(env, '/boards/' + env.TRELLO_BOARD_REUNIOES + '/lists', { fields: 'name' }),
+    trello(env, '/boards/' + env.TRELLO_BOARD_REUNIOES + '/cards',
+      { fields: 'name,desc,due,idList,idMembers,labels,shortUrl', checklists: 'all', limit: 500 }),
+    trello(env, '/boards/' + env.TRELLO_BOARD_REUNIOES + '/members', { fields: 'fullName,username' }),
+  ]);
+  const nomeLista = Object.fromEntries(listas.map(l => [l.id, l.name]));
+  const nomeMembro = Object.fromEntries(membros.map(m => [m.id, nomeCurto(m.fullName || m.username)]));
+  const reunioes = cartoes.map(c => ({
+    id: 'tr' + c.id,
+    assunto: c.name,
+    ata: (c.desc || '').slice(0, 4000),
+    data: c.due ? c.due.slice(0, 10) : '',
+    tipo: nomeLista[c.idList] || '',
+    pessoas: (c.idMembers || []).map(id => nomeMembro[id]).filter(Boolean),
+    etiquetas: (c.labels || []).map(l => l.name).filter(Boolean),
+    comp: (c.checklists || []).flatMap(ck => (ck.checkItems || []).map(it => ({
+      oque: it.name, feito: it.state === 'complete', quem: '', quando: '' }))),
+    link: c.shortUrl || '',
+    origem: 'trello',
+  })).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+  return { ligado: true, reunioes, listas: listas.map(l => l.name),
+    board: env.TRELLO_BOARD_REUNIOES };
 }
 
 /* ---------- Google Sheets, via conta de serviço ---------- */
@@ -377,17 +410,38 @@ function rateioDe(v) {
   return out;
 }
 
+/* Uma planilha, uma aba por módulo. O nome da aba é o nome do módulo. */
+const ABAS_MODULOS = ['Financeiro', 'Juridico', 'Marketing', 'Documentos', 'Procedimentos'];
+
 async function lerSheets(env) {
   if (!env.GOOGLE_SA || !env.SHEETS_ID) {
     return { ligado: false, motivo: 'GOOGLE_SA e SHEETS_ID não configurados' };
   }
   const token = await tokenGoogle(env);
-  const faixa = env.SHEETS_FAIXA || 'A:Z';
-  const u = 'https://sheets.googleapis.com/v4/spreadsheets/' + env.SHEETS_ID
-    + '/values/' + encodeURIComponent(faixa) + '?valueRenderOption=UNFORMATTED_VALUE';
-  const r = await fetch(u, { headers: { Authorization: 'Bearer ' + token } });
-  if (!r.ok) throw new Error('Sheets devolveu ' + r.status);
-  const linhas = (await r.json()).values || [];
+  const cab = { Authorization: 'Bearer ' + token };
+  const base = 'https://sheets.googleapis.com/v4/spreadsheets/' + env.SHEETS_ID;
+
+  /* quais abas existem de fato */
+  const rMeta = await fetch(base + '?fields=sheets.properties.title', { headers: cab });
+  if (!rMeta.ok) throw new Error('Sheets devolveu ' + rMeta.status);
+  const abas = ((await rMeta.json()).sheets || [])
+    .map(x => x.properties.title);
+  const querer = ABAS_MODULOS.filter(a =>
+    abas.some(b => semAcento(b) === semAcento(a)));
+  const nomeReal = a => abas.find(b => semAcento(b) === semAcento(a));
+
+  const modulos = {};
+  for (const aba of querer) {
+    const u = base + '/values/' + encodeURIComponent("'" + nomeReal(aba) + "'!A:Z")
+      + '?valueRenderOption=UNFORMATTED_VALUE';
+    const r = await fetch(u, { headers: cab });
+    if (!r.ok) continue;
+    modulos[semAcento(aba)] = (await r.json()).values || [];
+  }
+
+  const linhas = modulos['financeiro'] || [];
+  const outros = {};
+  Object.entries(modulos).forEach(([k, v]) => { if (k !== 'financeiro') outros[k] = linhasEmObjetos(v); });
   if (!linhas.length) return { ligado: true, lancamentos: [], aviso: 'planilha vazia' };
   const col = mapaColunas(linhas[0]);
   const faltando = ['data', 'descricao', 'valor'].filter(c => col[c] === undefined);
@@ -414,7 +468,26 @@ async function lerSheets(env) {
       origem: 'sheets',
     };
   }).filter(l => l.descricao || l.valor);
-  return { ligado: true, lancamentos };
+  return { ligado: true, lancamentos, modulos: outros, abas };
+}
+
+/* Para os módulos que não são financeiro, o cabeçalho vira campo direto:
+   a primeira coluna é o título, e cada coluna com nome de data vira prazo. */
+function linhasEmObjetos(linhas) {
+  if (!linhas || linhas.length < 2) return [];
+  const cab = linhas[0].map(c => String(c || '').trim());
+  return linhas.slice(1).filter(l => l.length && String(l[0] || '').trim()).map((l, i) => {
+    const o = { id: 'sh' + i, origem: 'sheets' };
+    cab.forEach((c, j) => {
+      if (!c) return;
+      const chave = semAcento(c).replace(/\s+/g, '_');
+      const bruto = l[j];
+      o[chave] = /(data|prazo|vencimento|revisao|proxima|inicio|fim)/.test(chave)
+        ? dataBR(bruto) : (typeof bruto === 'number' ? bruto : String(bruto || ''));
+    });
+    o.titulo = String(l[0] || '');
+    return o;
+  });
 }
 
 /* ---------- servidor ---------- */
