@@ -239,6 +239,9 @@ button.lnk:active{color:var(--teal)}
 .aviso{background:var(--ochre-bg);border:1px solid #E6DBBB;border-left:3px solid var(--ochre);
  border-radius:6px;padding:12px 14px;font-size:13.5px;line-height:1.5;color:var(--ink);margin-bottom:20px}
 .aviso b{color:var(--ochre)}
+.aviso.grave{background:#FBF0F1;border-color:#E8C9CE;border-left-color:var(--clay)}
+.aviso.grave b{color:var(--clay)}
+#modo{padding:0 16px;max-width:900px;margin:14px auto 0}
 .cobertura{margin-top:48px;border-top:1px solid var(--rule);padding-top:16px;font-size:13px;color:var(--soft)}
 .cobertura b{display:block;font-size:12.5px;color:var(--faint);margin-bottom:8px;font-weight:600}
 .cobertura .cl{padding:7px 0;border:0;font-size:13px;line-height:1.5;display:block}
@@ -397,7 +400,8 @@ textarea{width:100%;font:inherit;font-size:16px;padding:11px 12px;border:1px sol
  <div class="subnav" id="subnav"></div>
 </div></div>
 
-<div class="wrap"><main id="main"></main>
+<div class="wrap"><div id="modo"></div>
+<main id="main"></main>
 <section class="cobertura" id="cobertura"></section>
 </div>
 
@@ -3869,7 +3873,8 @@ let tmr;
 function salvar(){
  clearTimeout(tmr);
  tmr = setTimeout(async () => {
-  if(COMPARTILHADO) return salvarNoServidor();
+  if(MODO === 'servidor') return salvarNoServidor();
+  if(MODO === 'nenhum') return avisarFalhaAoSalvar();
   /* O aviso "Salvo" só existe na Matinal, mas a gravação vale para todas as abas:
      PDI, alertas, reuniões, registros e pontos também passam por aqui. */
   const s = document.getElementById('saved');
@@ -3918,8 +3923,8 @@ let jaAvisou = false;
 function avisarFalhaAoSalvar(){
  if(jaAvisou) return; jaAvisou = true;
  const n = el('<div class="mask"><div class="modal" role="dialog" aria-modal="true">'
-  +'<h3>Não consegui salvar</h3><p class="lede">O que você escreveu não foi gravado. '
-  +'Copie o texto antes de fechar a página.</p>'
+  +'<h3>Não consegui salvar</h3><p class="lede">O que você escreveu <b>não foi gravado</b> e vai '
+  +'sumir ao recarregar a página. Copie o texto antes de fechar.</p>'
   +'<div class="actions"><button class="btn" data-x>Entendi</button></div></div></div>');
  n.querySelector('[data-x]').onclick = () => { n.remove(); jaAvisou = false; };
  document.body.append(n);
@@ -4226,23 +4231,51 @@ document.getElementById('cobertura').innerHTML =
 /* Onde o que as pessoas escrevem fica guardado.
    Servido pelo Worker: vai para o servidor, e todo mundo vê o mesmo.
    Aberto como arquivo: cai no armazenamento do navegador, só para quem abriu. */
-let REV = null, COMPARTILHADO = false;
+/* Onde o que as pessoas escrevem é gravado. Três modos possíveis, e o painel
+   precisa saber em qual está — porque escrever sem gravar é pior que não
+   escrever: você acha que registrou e não registrou. */
+let REV = null, MODO = 'nenhum';   /* servidor | navegador | nenhum */
+
 async function carregarEstado(){
  try {
-  const r = await fetch('/estado', {headers:{'accept':'application/json'}});
-  if((r.headers.get('content-type')||'').includes('json')){
+  const r = await fetch('/estado', {headers:{'accept':'application/json'}, credentials:'same-origin'});
+  if(r.ok && (r.headers.get('content-type')||'').includes('json')){
    const j = await r.json();
-   COMPARTILHADO = true; REV = j.rev;
+   MODO = 'servidor'; REV = j.rev;
    return j.dados || {};
   }
- } catch(e){ /* segue para o navegador */ }
- try { const r = await window.storage.get('matinal:campos');
-       return r && r.value ? JSON.parse(r.value) : {}; }
- catch(e){ return {}; }
+ } catch(e){}
+ if(typeof window.storage !== 'undefined' && window.storage){
+  try { const r = await window.storage.get('matinal:campos');
+        MODO = 'navegador';
+        return r && r.value ? JSON.parse(r.value) : {}; }
+  catch(e){ MODO = 'navegador'; return {}; }
+ }
+ MODO = 'nenhum';
+ return {};
+}
+
+/* Aviso fixo no topo. Não é decoração: sem ele a pessoa digita a manhã inteira
+   e perde tudo ao fechar a aba. */
+function avisarModo(){
+ const alvo = document.getElementById('modo');
+ if(!alvo) return;
+ alvo.innerHTML = '';
+ if(MODO === 'servidor') return;
+ if(MODO === 'navegador'){
+  alvo.append(el('<div class="aviso"><b>Só neste aparelho.</b> O que você escrever fica guardado '
+   +'apenas aqui, e ninguém mais do time vê. Para gravar para todos, use o endereço publicado '
+   +'na Cloudflare.</div>'));
+  return;
+ }
+ alvo.append(el('<div class="aviso grave"><b>Nada do que você escrever será salvo.</b> '
+  +'O painel não conseguiu falar com o servidor, então tarefa, reunião, objetivo e lançamento '
+  +'somem ao recarregar a página. Recarregue; se continuar, é o servidor que está fora.</div>'));
 }
 
 (async () => {
  dados = await carregarEstado();
+ avisarModo();
  trocarEmpresa = montarEmpresas();
  montarPeriodo();
  trocarEmpresa(EMP.id);
