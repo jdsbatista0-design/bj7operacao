@@ -2064,7 +2064,7 @@ function viewQuentes(m){
 
  m.append(el('<h2>Responsável</h2>'));
  const segD = el('<div class="seg"><button class="on" data-d="">Todos</button>'
-  + NOMES.map(n=>'<button data-d="'+n+'">'+n+'</button>').join('') + '</div>');
+  + NOMES.filter(ativo).map(n=>'<button data-d="'+n+'">'+n+'</button>').join('') + '</div>');
  const titulo = el('<p class="lede" style="margin:14px 0 0"></p>');
  const alvo = el('<div></div>');
  m.append(segD, titulo, alvo);
@@ -2152,7 +2152,7 @@ function viewLeitura(m){
  let fResp = '';
  const segR = el('<div class="seg" style="flex-wrap:wrap;margin-bottom:10px">'
   +'<button class="on" data-r="">Todos</button>'
-  + NOMES.map(n=>'<button data-r="'+esc(n)+'">'+esc(n)+'</button>').join('') + '</div>');
+  + NOMES.filter(ativo).map(n=>'<button data-r="'+esc(n)+'">'+esc(n)+'</button>').join('') + '</div>');
  const rk = el('<div></div>');
  m.append(segR, rk);
  let mostra = 15;
@@ -2540,7 +2540,7 @@ function viewAtividades(m){
 
  m.append(el('<h2>Lista</h2>'));
  const segA = el('<div class="seg" style="margin-bottom:8px"><button class="on" data-a="">Todos</button>'
-  + NOMES.map(n=>'<button data-a="'+n+'">'+n+'</button>').join('') + '</div>');
+  + NOMES.filter(ativo).map(n=>'<button data-a="'+n+'">'+n+'</button>').join('') + '</div>');
  const canais = [...new Set(A.map(x=>x.t))].filter(Boolean).sort();
  const segT = el('<div class="seg" style="margin-bottom:8px"><button class="on" data-t="">Todos os canais</button>'
   + canais.map(t=>'<button data-t="'+esc(t)+'">'+esc(t)+'</button>').join('') + '</div>');
@@ -4463,22 +4463,26 @@ function linha(host, html, preencher){
    No Grupo: como está o conjunto, onde está o dinheiro, o que exige decisão.
    Numa empresa: o funil dela, o time dela, a carteira dela.
    Tela de grupo não aparece dentro de empresa, e vice-versa. */
-const GESTAO = () => [['financeiro','Financeiro'],
-  ...MODULOS.filter(x=>x.id!=='contas').map(x=>[x.id, x.nome]), ['lixeira','Lixeira']];
+/* No Grupo, a gestão inteira. Dentro de uma empresa só o que é dela de fato:
+   o financeiro espelhado e as tarefas. Jurídico, marketing, documentos e
+   procedimentos são do grupo e não se repartem por empresa. */
+const GESTAO_GRUPO = () => [['financeiro','Financeiro'],
+  ...MODULOS.filter(x=>x.id!=='contas').map(x=>[x.id, x.nome])];
+const GESTAO_EMPRESA = () => [['financeiro','Financeiro'],['tarefas','Tarefas']];
 
 const gruposDoEscopo = () => EMP.id === 'grupo'
  ? [
    {id:'visao',   rot:'Visão do Grupo', abas:[['grupo','Visão do Grupo']]},
-   {id:'hoje',    rot:'Agenda',   abas:[['agenda','O que fazer'],['alertas','Alertas']]},
-   {id:'gestao',  rot:'Gestão',   abas:GESTAO()},
+   {id:'hoje',    rot:'Alertas',  abas:[['alertas','Alertas']]},
+   {id:'gestao',  rot:'Gestão',   abas:GESTAO_GRUPO()},
    {id:'pessoas', rot:'Pessoas',  abas:[['pessoas','Time'],['reunioes','Reuniões']]},
   ]
  : [
    {id:'comercial', rot:'Comercial', abas:[['resumo','Resumo'],['quentes','Quentes'],
-     ['leitura','Leitura'],['atividades','Atividades'],['carteira','Carteira'],['resultado','Resultado']]},
-   {id:'hoje',      rot:'Agenda',   abas:[['agenda','O que fazer'],['alertas','Alertas']]},
+     ['atividades','Atividades'],['carteira','Carteira'],['resultado','Resultado']]},
+   {id:'hoje',      rot:'Alertas',  abas:[['alertas','Alertas']]},
    {id:'pessoas',   rot:'Pessoas',  abas:[['pessoas','Time'],['reunioes','Reuniões']]},
-   {id:'gestao',    rot:'Gestão',   abas:GESTAO()},
+   {id:'gestao',    rot:'Gestão',   abas:GESTAO_EMPRESA()},
    {id:'matinal',   rot:'Matinal',  abas:[['matinal','Matinal']]},
   ];
 const ABAS = () => gruposDoEscopo().flatMap(g=>g.abas);
@@ -4610,12 +4614,7 @@ function avisarModo(){
  if(!alvo) return;
  alvo.innerHTML = '';
  if(MODO === 'servidor') return;
- if(MODO === 'navegador'){
-  alvo.append(el('<div class="aviso"><b>Só neste aparelho.</b> O que você escrever fica guardado '
-   +'apenas aqui, e ninguém mais do time vê. Para gravar para todos, use o endereço publicado '
-   +'na Cloudflare.</div>'));
-  return;
- }
+ if(MODO === 'navegador') return;   /* nada a avisar: a Central só lê */
  alvo.append(el('<div class="aviso grave"><b>Nada do que você escrever será salvo.</b> '
   +'O painel não conseguiu falar com o servidor, então tarefa, reunião, objetivo e lançamento '
   +'somem ao recarregar a página. Recarregue; se continuar, é o servidor que está fora.</div>'));
