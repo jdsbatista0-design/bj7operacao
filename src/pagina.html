@@ -2800,29 +2800,7 @@ function viewFinanceiro(m){
  }
 
  /* --- lançar --- */
- if(FIN_EXTERNO()){
-  /* nada a criar: a planilha é a fonte */
- } else if(op){
-  m.append(el('<div class="empty" style="margin-top:20px">Lançamentos são criados na visão '
-   +'<b>Grupo</b>, para que cada um exista uma vez só. Troque a empresa no topo para lançar.</div>'));
- } else {
-  const add = el('<div class="addbar" style="margin-top:20px">'
-   +'<input class="search" placeholder="Do que se trata… e Enter" aria-label="Novo lançamento">'
-   +'<button class="btn">Lançar</button></div>');
-  const inp = add.querySelector('input');
-  const criar = () => {
-   const t = inp.value.trim(); if(!t) return;
-   dados.lancamentos.unshift({id:'l'+Date.now(), descricao:t, tipo:'saida', valor:0,
-     competencia:HOJE, vencimento:'', pagoEm:'', categoria:'', op:'corp', rateio:{},
-     criado:HOJE});
-   inp.value=''; salvar(); render();
-  };
-  inp.onkeydown = e => { if(e.key==='Enter') criar(); };
-  add.querySelector('button').onclick = criar;
-  m.append(add);
- }
-
- /* --- lista --- */
+  /* --- lista --- */
  m.append(el('<h2>Lançamentos</h2>'));
  let fSt = 'todos';
  const segS = el('<div class="seg" style="margin-bottom:10px">'
@@ -2988,11 +2966,54 @@ function restaurar(l){
  dados.lixeira = dados.lixeira.filter(x=>x.id!==l.id);
  salvar(); render();
 }
-const TAREFAS_EXTERNAS = () => !!(D.trello && D.trello.ligado);
+/* Cada módulo tem uma fonte. A Central lê e não escreve — então onde a fonte
+   não está ligada, a tela mostra o que conectar, e não um campo de digitar. */
+const FONTE_MODULO = {
+ tarefas:       {nome:'Trello',         onde:'quadro de tarefas'},
+ reunioes:      {nome:'Trello',         onde:'quadro de reuniões'},
+ financeiro:    {nome:'Google Sheets',  onde:'aba Financeiro'},
+ juridico:      {nome:'Google Sheets',  onde:'aba Juridico'},
+ marketing:     {nome:'Google Sheets',  onde:'aba Marketing'},
+ documentos:    {nome:'Google Sheets',  onde:'aba Documentos'},
+ procedimentos: {nome:'Google Sheets',  onde:'aba Procedimentos'},
+};
+const TAREFAS_EXTERNAS   = () => !!(D.trello && D.trello.ligado);
+const REUNIOES_EXTERNAS  = () => !!(D.trelloReunioes && D.trelloReunioes.ligado);
+const abaSheets = id => ((D.sheets||{}).modulos||{})[id] || null;
+
+function ligado(mid){
+ if(mid==='tarefas')  return TAREFAS_EXTERNAS();
+ if(mid==='reunioes') return REUNIOES_EXTERNAS();
+ if(mid==='financeiro') return FIN_EXTERNO();
+ return !!(abaSheets(mid) && abaSheets(mid).length);
+}
+function porqueNaoLigado(mid){
+ const f = FONTE_MODULO[mid] || {nome:'a fonte', onde:''};
+ if(mid==='tarefas')  return (D.trello||{}).motivo || (D.trello||{}).erro || '';
+ if(mid==='reunioes') return (D.trelloReunioes||{}).motivo || (D.trelloReunioes||{}).erro || '';
+ const sh = D.sheets || {};
+ if(!sh.ligado) return sh.motivo || sh.erro || '';
+ return 'a planilha está conectada, mas não tem a '+f.onde
+   + (sh.abas ? '. Abas encontradas: '+sh.abas.join(', ') : '');
+}
+function avisoFonte(m, mid){
+ const f = FONTE_MODULO[mid];
+ if(!f) return;
+ if(ligado(mid)){
+  m.append(el('<div class="fonte-ext"><b>Vem do '+esc(f.nome)+'.</b> '
+   +'A Central lê e não escreve. Para mudar, altere no '+esc(f.nome)
+   +' e clique em Atualizar aqui em cima.</div>'));
+ } else {
+  m.append(el('<div class="fonte-ext off"><b>'+esc(f.nome)+' não conectado.</b> '
+   +'Este módulo lê do '+esc(f.nome)+', na '+esc(f.onde)+'. '
+   + esc(porqueNaoLigado(mid)) + '</div>'));
+ }
+}
+
 const regs = mid => {
- if(mid==='tarefas' && TAREFAS_EXTERNAS()) return D.trello.tarefas || [];
- return (dados.registros && dados.registros[mid] || [])
-  .filter(r => EMP.id==='grupo' || r.emp===EMP.id);
+ if(mid==='tarefas') return TAREFAS_EXTERNAS() ? (D.trello.tarefas||[]) : [];
+ const aba = abaSheets(mid);
+ return aba ? aba : [];
 };
 const emAberto = (mod, r) => !(mod.concluido||[]).includes(r[mod.status]);
 const atrasado = (mod, r) => emAberto(mod,r) && r[mod.prazo] && r[mod.prazo] < HOJE;
@@ -3170,8 +3191,12 @@ function viewTarefas(m){
   m.append(el('<div class="fonte-ext off"><b>Trello não conectado.</b> '
    + esc(D.trello.motivo || D.trello.erro || '') + '. Enquanto isso, o que você criar fica só aqui.</div>'));
  }
- m.append(el('<p class="lede">A fila do dia, organizada por urgência. Toque no quadrado para concluir, '
-  +'no texto para abrir'+(TAREFAS_EXTERNAS()?' no Trello':'')+'.</p>'));
+ m.append(el('<p class="lede">A fila do dia, organizada por urgência: atrasadas, hoje, esta semana. '
+  +'Toque numa tarefa para ver os detalhes e abrir no Trello.</p>'));
+ if(!TAREFAS_EXTERNAS()){
+  m.append(el('<div class="empty">Sem dado para mostrar até o quadro ser conectado.</div>'));
+  return;
+ }
 
  const kp = el('<div></div>'); m.append(kp);
  const criar = texto => {
@@ -3185,54 +3210,9 @@ function viewTarefas(m){
   dados.registros.tarefas.unshift(novo); salvar();
   return novo;
  };
- if(TAREFAS_EXTERNAS()){
-  const ir = el('<div class="actions" style="margin-top:16px"><a class="btn" target="_blank" '
-    +'rel="noopener" href="https://trello.com/b/'+esc(D.trello.board||'')+'">Abrir o quadro no Trello</a></div>');
-  m.append(ir);
- } else {
- const add = el('<div class="addbar" style="margin-top:16px">'
-  +'<input class="search" placeholder="Ex: ligar pro cartório amanhã Nicolas urgente" '
-  +'aria-label="Nova tarefa"><button class="btn">Criar</button></div>');
- const previa = el('<div class="previa"></div>');
- const inp = add.querySelector('input');
- const mostraPrevia = () => {
-  const t = inp.value.trim();
-  if(!t){ previa.innerHTML=''; return; }
-  const p = interpretar(t);
-  const pecas = [];
-  if(p.prazo) pecas.push('<span class="tag t-teal">'+(p.prazo===HOJE?'hoje'
-    : p.prazo===somaDias(1)?'amanhã' : dbr(p.prazo))+'</span>');
-  if(p.responsavel) pecas.push('<span class="tag t-teal">'+esc(p.responsavel)+'</span>');
-  if(p.prioridade) pecas.push('<span class="tag '+(p.prioridade==='alta'?'t-clay':'t-gray')+'">'
-    +p.prioridade+'</span>');
-  previa.innerHTML = pecas.length
-   ? '<b>'+esc(p.titulo)+'</b> ' + pecas.join(' ')
-   : '<span class="mini">Escreva o prazo, o nome de quem faz e a prioridade na mesma frase '
-     +'— o painel separa sozinho.</span>';
- };
- const fazer = () => {
-  const t = inp.value.trim();
-  if(!t) return;
-  const novo = criar(t);
-  inp.value=''; previa.innerHTML='';
-  render();
-  const barra = document.querySelector('#main .previa');
-  if(barra){
-   barra.innerHTML = '<span class="ok">Criada:</span> <b>'+esc(novo.titulo)+'</b>'
-    + (novo.prazo? ' · '+dbr(novo.prazo) : ' · sem prazo')
-    + (novo.responsavel? ' · '+esc(novo.responsavel) : ' · sem dono')
-    + ' <button class="btn ghost sm" id="desfazer">Desfazer</button>';
-   const dz = barra.querySelector('#desfazer');
-   if(dz) dz.onclick = () => {
-    dados.registros.tarefas = dados.registros.tarefas.filter(z=>z.id!==novo.id);
-    salvar(); render();
-   };
-  }
- };
- inp.oninput = mostraPrevia;
- inp.onkeydown = e => { if(e.key==='Enter') fazer(); };
- add.querySelector('button').onclick = fazer;
- m.append(add, previa);
+ if(TAREFAS_EXTERNAS() && D.trello.board){
+  m.append(el('<div class="actions" style="margin-top:16px"><a class="btn" target="_blank" '
+   +'rel="noopener" href="https://trello.com/b/'+esc(D.trello.board)+'">Abrir o quadro no Trello</a></div>'));
  }
 
  const donos = [...new Set(abertas.map(r=>r.responsavel).filter(Boolean))].sort();
@@ -3388,7 +3368,12 @@ function viewModulo(m, mid){
  dados.registros[mid] = dados.registros[mid] || [];
  const mod = modPor(mid);
  const principal = mod.campos.find(c=>c.principal) || mod.campos[0];
+ avisoFonte(m, mid);
  const lista = regs(mid);
+ if(!ligado(mid)){
+  m.append(el('<div class="empty">Sem dado para mostrar até a fonte ser conectada.</div>'));
+  return;
+ }
  const abertos = lista.filter(r=>emAberto(mod,r));
  const atras = lista.filter(r=>atrasado(mod,r));
 
@@ -3466,27 +3451,7 @@ function viewModulo(m, mid){
  }
 
  /* --- adicionar rápido: escreve e Enter --- */
- const criar = (texto) => {
-  const novo = {id:'x'+Date.now(), emp: EMP.id==='grupo'?'grupo':EMP.id, criado:HOJE};
-  mod.campos.forEach(c=>{ if(c.padrao) novo[c.k]=c.padrao; });
-  if(texto) novo[principal.k] = texto;
-  dados.registros[mid].unshift(novo); salvar();
-  return novo;
- };
- const add = el('<div class="addbar"><input class="search" placeholder="'+esc(principal.r)
-  +'… e Enter para criar" aria-label="Adicionar"><button class="btn">Adicionar</button></div>');
- const inp = add.querySelector('input');
- const fazer = (abrir) => {
-  const t = inp.value.trim();
-  const novo = criar(t);
-  inp.value='';
-  render();
-  if(!t || abrir){ const primeira = document.querySelector('#main .row[data-r="'+novo.id+'"]');
-    if(primeira) primeira.click(); }
- };
- inp.onkeydown = e => { if(e.key==='Enter') fazer(false); };
- add.querySelector('button').onclick = () => fazer(true);
- m.append(add);
+
 
  /* --- filtros e ordem --- */
  const ag = AGRUPAR[mid] || {padrao:'', ops:[['','Sem agrupar']]};
@@ -3554,20 +3519,16 @@ function viewModulo(m, mid){
      corpo.setAttribute('aria-expanded','true');
      const p = el('<div class="panel"></div>');
      cx.after(p);
-     mod.campos.forEach(c=> campoInput(r, c, salvar, p) );
-     const ac = el('<div class="actions">'
-       +'<button class="btn ghost sm" data-dup>Duplicar</button>'
-       +'<button class="btn ghost sm" data-del>Apagar</button></div>');
-     ac.querySelector('[data-dup]').onclick = () => {
-      const c = {...r, id:'x'+Date.now(), criado:HOJE};
-      if(c[mod.prazo]) c[mod.prazo]='';
-      dados.registros[mid].unshift(c); salvar(); render();
-     };
-     ac.querySelector('[data-del]').onclick = () => {
-      paraLixeira(mid, r, r[principal.k] || 'sem título');
-      dados.registros[mid] = dados.registros[mid].filter(z=>z.id!==r.id); salvar(); render();
-     };
-     p.append(ac);
+     const cx2 = el('<div></div>');
+     Object.entries(r).forEach(([k,v])=>{
+      if(['id','origem','titulo'].includes(k) || v==='' || v===null || v===undefined) return;
+      cx2.append(el('<div class="conv" style="grid-template-columns:1fr 1.4fr">'
+       +'<span class="mini">'+esc(k.replace(/_/g,' '))+'</span>'
+       +'<span>'+esc(String(v))+'</span></div>'));
+     });
+     p.append(cx2);
+     p.append(el('<p class="mini" style="margin-top:12px">Vem da planilha. '
+      +'Para corrigir, edite a linha lá e clique em Atualizar.</p>'));
     };
    });
   });
@@ -3831,10 +3792,12 @@ const ehTime = r => (tipoPor(r.tipo).fam || 'time') === 'time';
 /* participantes externos ficam no próprio registro: não existem no Pipedrive */
 const externosConhecidos = () => [...new Set((dados.reunioes||[])
   .flatMap(r => r.externos || []).filter(Boolean))].sort();
-const reunioes = () => (dados.reunioes||[]).filter(r => EMP.id==='grupo' || r.emp===EMP.id)
-  .sort((a,b)=> a.data < b.data ? 1 : -1);
+const reunioes = () => REUNIOES_EXTERNAS()
+ ? (D.trelloReunioes.reunioes || [])
+ : (dados.reunioes||[]).filter(r => EMP.id==='grupo' || r.emp===EMP.id)
+    .sort((a,b)=> a.data < b.data ? 1 : -1);
 const compromissosAbertos = () => reunioes().flatMap(r =>
-  (r.comp||[]).map((c,i)=>({...r_ref(r), c, i, r})).filter(x=>!x.c.feito));
+  (r.comp||[]).map((c,i)=>({...r_ref(r), c, i, r})).filter(x=>!x.c.feito && x.c.oque));
 const participantes = r => [...(r.pessoas||[]), ...(r.externos||[])].join(', ');
 const r_ref = r => ({data:r.data, tipo:r.tipo, com:participantes(r)});
 
@@ -3844,220 +3807,126 @@ function novaReuniao(tipoId, prefPessoa){
    pessoas: prefPessoa?[prefPessoa]:[], pontos:{}, comp:[]};
 }
 
-function editorReuniao(host, r, aoSalvar){
- const t = tipoPor(r.tipo);
- host.append(el('<label>Data</label>'));
- const dt = el('<input type="date" class="search" style="max-width:190px">'); dt.value = r.data;
- dt.onchange = () => { r.data = dt.value; aoSalvar(); };
- host.append(dt);
+function viewAgenda(m){
+ const p = pendencias();
+ const atras = p.filter(x=>x.quando && x.quando < HOJE);
+ const hoje  = p.filter(x=>x.quando === HOJE);
+ const semana= p.filter(x=>x.quando > HOJE && dif(HOJE,x.quando) <= 7);
+ const semData = p.filter(x=>!x.quando);
 
- host.append(el('<label>Do time</label>'));
- const seg = el('<div class="seg" style="flex-wrap:wrap">'
-  + NOMES.map(n=>'<button data-n="'+esc(n)+'">'+esc(n)+'</button>').join('') + '</div>');
- const marca = () => seg.querySelectorAll('button').forEach(b=>
-   b.classList.toggle('on', (r.pessoas||[]).includes(b.dataset.n)));
- seg.querySelectorAll('button').forEach(b => b.onclick = () => {
-  r.pessoas = r.pessoas || [];
-  const i = r.pessoas.indexOf(b.dataset.n);
-  if(i<0) r.pessoas.push(b.dataset.n); else r.pessoas.splice(i,1);
-  marca(); aoSalvar();
- });
- marca(); host.append(seg);
-
- if(!ehTime(r)){
-  host.append(el('<label for="'+r.id+'-ex">De fora<i>Nome e de onde é, separados por vírgula. '
-   +'Sócio, cliente, construtora, cartório, prefeitura.</i></label>'));
-  const ex = el('<input class="search" id="'+r.id+'-ex" list="ext-'+r.id+'" '
-    +'placeholder="Bruno Prendin, Construtora X">');
-  const dl = el('<datalist id="ext-'+r.id+'">'
-    + externosConhecidos().map(n=>'<option value="'+esc(n)+'"></option>').join('') + '</datalist>');
-  ex.value = (r.externos||[]).join(', ');
-  ex.oninput = () => { r.externos = ex.value.split(',').map(x=>x.trim()).filter(Boolean); aoSalvar(); };
-  host.append(ex, dl);
- }
-
- host.append(el('<label for="'+r.id+'-as">Assunto<i>Uma linha para achar depois.</i></label>'));
- const asu = el('<input class="search" id="'+r.id+'-as" placeholder="Ex: permuta da Quadra 82">');
- asu.value = r.assunto || '';
- asu.oninput = () => { r.assunto = asu.value; aoSalvar(); };
- host.append(asu);
-
- t.pontos.forEach((ponto,i)=>{
-  host.append(el('<label for="'+r.id+'-p'+i+'">'+esc(ponto)+'</label>'));
-  const ta = el('<textarea id="'+r.id+'-p'+i+'" rows="3"></textarea>');
-  ta.value = (r.pontos||{})[ponto] || '';
-  ta.oninput = () => { r.pontos = r.pontos||{}; r.pontos[ponto] = ta.value; aoSalvar(); };
-  host.append(ta);
- });
-
- host.append(el('<h4 class="sec" style="margin-top:20px">Combinados</h4>'));
- host.append(el('<p class="mini">O que ficou combinado, com dono e prazo. Fica aberto até alguém marcar.</p>'));
- const cx = el('<div></div>');
- host.append(el('<datalist id="quem-'+r.id+'">'
-  + [...NOMES, ...(r.externos||[]), ...externosConhecidos()].filter((v,i,a)=>a.indexOf(v)===i)
-    .map(n=>'<option value="'+esc(n)+'"></option>').join('') + '</datalist>'));
- host.append(cx);
- const pintaComp = () => {
-  cx.innerHTML='';
-  (r.comp||[]).forEach((c,i)=>{
-   const linha_ = el('<div class="comp'+(c.feito?' feito':'')+'">'
-    +'<button class="chk" aria-label="Marcar como feito">'+(c.feito?'✓':'')+'</button>'
-    +'<div class="cp"><input class="search cpo" placeholder="O que ficou combinado">'
-    +'<div class="cpb"><input class="search cpq" list="quem-'+r.id+'" placeholder="Quem…" '
-    +'style="max-width:180px"><input type="date" class="search cpd" style="max-width:160px"></div></div>'
-    +'<button class="btn ghost sm" data-del aria-label="Remover">Remover</button></div>');
-   const o=linha_.querySelector('.cpo'), q=linha_.querySelector('.cpq'), dd=linha_.querySelector('.cpd');
-   o.value=c.oque||''; q.value=c.quem||''; dd.value=c.quando||'';
-   o.oninput=()=>{c.oque=o.value; aoSalvar();};
-   q.oninput=()=>{c.quem=q.value; aoSalvar();};
-   dd.onchange=()=>{c.quando=dd.value; aoSalvar();};
-   linha_.querySelector('.chk').onclick=()=>{ c.feito=!c.feito; aoSalvar(); pintaComp(); };
-   linha_.querySelector('[data-del]').onclick=()=>{ r.comp.splice(i,1); aoSalvar(); pintaComp(); };
-   cx.append(linha_);
-  });
-  const add = el('<button class="btn ghost sm" style="margin-top:8px">Adicionar combinado</button>');
-  add.onclick = () => { r.comp = r.comp||[]; r.comp.push({oque:'',quem:'',quando:'',feito:false});
-    aoSalvar(); pintaComp(); };
-  cx.append(add);
- };
- pintaComp();
-}
-
-function viewReunioes(m){
- dados.reunioes = dados.reunioes || [];
- const lista = reunioes();
- const abertos = compromissosAbertos();
- const atrasados = abertos.filter(x=>x.c.quando && x.c.quando < HOJE);
-
- m.append(el('<p class="lede">Onde ficam registrados os 1:1 e as reuniões de decisão de '
-  +esc(EMP.nome)+'. O que foi conversado, o que ficou combinado, e com quem. '
-  +'Os pontos de cada tipo de reunião são configuráveis no fim da página.</p>'));
+ m.append(el('<p class="lede">Tudo que tem data e ainda não foi resolvido, de todos os módulos de '
+  +esc(EMP.nome)+': tarefas, contas, documentos, processos, campanhas, procedimentos, combinados de '
+  +'reunião e objetivos. É a resposta para <b>o que fazer hoje</b>.</p>'));
 
  m.append(cartoes([
-  {b:lista.filter(ehTime).length, s:'reuniões com o time'},
-  {b:lista.filter(r=>!ehTime(r)).length, s:'reuniões com sócios, clientes e parceiros'},
-  {b:abertos.length, s:'combinados em aberto'},
-  {b:atrasados.length, s:'combinados fora do prazo'}]));
+  {b:atras.length, s:'vencidos'},
+  {b:hoje.length, s:'para hoje'},
+  {b:semana.length, s:'nos próximos 7 dias'},
+  {b:semData.length, s:'em aberto sem data marcada'}]));
 
- const semUm = NOMES.filter(ativo).filter(n=>!(dados.reunioes||[]).some(r=>r.tipo==='1a1'
-   && (r.pessoas||[]).includes(n)));
- if(semUm.length) m.append(el('<p class="lede" style="margin-top:14px"><b>Sem nenhum 1:1 registrado:</b> '
-   + semUm.map(esc).join(', ') + '. Um por mês com cada um já muda a conversa.</p>'));
+ const bloco = (titulo, itens, aviso) => {
+  if(!itens.length) return;
+  m.append(el('<h2>'+titulo+'</h2>'));
+  const bx = el('<div></div>');
+  itens.forEach(x=>{
+   const l = el('<div class="conv" style="grid-template-columns:1fr auto auto;gap:10px">'
+    +'<div><span class="nm">'+esc(x.o)+'</span>'
+    +'<div class="sub">'+esc(x.onde)+(x.quem? ' · '+esc(x.quem) : ' · sem dono')+'</div></div>'
+    +'<span class="'+(aviso?'warn':'mini')+'">'+(x.quando? dbr(x.quando):'sem data')+'</span>'
+    +'<button class="btn ghost sm">Abrir</button></div>');
+   l.querySelector('button').onclick = () => { x.ir(); window.scrollTo({top:0}); };
+   bx.append(l);
+  });
+  m.append(bx);
+ };
+ bloco('Vencidos', atras, true);
+ bloco('Hoje', hoje, true);
+ bloco('Próximos 7 dias', semana, false);
+ bloco('Sem data marcada', semData, false);
+ if(!p.length) m.append(el('<div class="empty" style="margin-top:16px">Nada em aberto com prazo. '
+  +'Comece cadastrando uma tarefa ou uma conta a pagar.</div>'));
+
+ const semDono = p.filter(x=>!x.quem);
+ if(semDono.length) m.append(el('<p class="lede" style="margin-top:20px"><b>'+semDono.length
+  +'</b> pendências estão sem dono. Sem nome, ninguém faz — e na próxima reunião ninguém responde por elas.</p>'));
+}
+
+/* ---------------- reuniões e 1:1 ---------------- */
+/* Duas famílias, porque as perguntas são diferentes.
+   COM O TIME: 1:1 e operacional — o assunto é a pessoa e o trabalho dela.
+   COM O MUNDO: sócio, cliente, fornecedor, parceiro, órgão público — o assunto é
+   uma negociação ou uma decisão, e o participante não está na folha. */
+function viewReunioes(m){
+ avisoFonte(m, 'reunioes');
+ if(!REUNIOES_EXTERNAS()){
+  m.append(el('<div class="empty">Cada cartão do quadro de reuniões vira uma reunião aqui: '
+   +'o título é o assunto, a descrição é a ata, os membros são quem participou e cada item de '
+   +'checklist vira um combinado. Item marcado é combinado cumprido.</div>'));
+  return;
+ }
+ const L = reunioes();
+ const comp = L.flatMap(r => (r.comp||[]).map(c => ({...c, de:r})));
+ const abertos = comp.filter(c=>!c.feito);
+ const taxa = comp.length ? Math.round((comp.length-abertos.length)/comp.length*100) : null;
+
+ m.append(cartoes([
+  {b:L.length, s:'reuniões no quadro'},
+  {b:comp.length, s:'combinados registrados'},
+  {b:abertos.length, s:'combinados em aberto'},
+  {b:taxa===null? '—' : taxa+'%', s:'dos combinados concluídos'}]));
 
  if(abertos.length){
   m.append(el('<h2>Combinados em aberto</h2>'));
+  m.append(el('<p class="lede">Item de checklist ainda não marcado. Marque no Trello e ele sai daqui.</p>'));
   const bx = el('<div></div>');
-  abertos.sort((a,b)=> (a.c.quando||'9999') < (b.c.quando||'9999') ? -1 : 1).forEach(x=>{
-   const atras = x.c.quando && x.c.quando < HOJE;
-   const l = el('<div class="conv" style="grid-template-columns:1fr auto auto;gap:10px">'
-    +'<div><span class="nm">'+esc(x.c.oque||'(sem descrição)')+'</span>'
-    +'<div class="sub">'+esc(x.c.quem||'sem dono')+' · combinado em '+dbr(x.data)
-    +' no '+esc(tipoPor(x.tipo).nome)+'</div></div>'
-    +'<span class="'+(atras?'warn':'mini')+'">'+(x.c.quando? dbr(x.c.quando) : 'sem prazo')+'</span>'
-    +'<button class="btn ghost sm">Feito</button></div>');
-   l.querySelector('button').onclick = () => { x.c.feito = true; salvar(); render(); };
+  abertos.forEach(c=>{
+   const l = el('<div class="conv" style="grid-template-columns:1fr auto;gap:10px">'
+    +'<div><span class="nm">'+esc(c.oque)+'</span>'
+    +'<div class="sub">'+esc(c.de.assunto||'')+(c.de.data? ' · '+dbr(c.de.data):'')+'</div></div>'
+    +(c.de.link? '<a class="btn ghost sm" target="_blank" rel="noopener" href="'+esc(c.de.link)
+      +'">Abrir</a>' : '')+'</div>');
    bx.append(l);
   });
   m.append(bx);
  }
 
- m.append(el('<h2>Registrar reunião</h2>'));
- m.append(el('<p class="lede">Com o time o assunto é a pessoa e o trabalho dela. Com sócios, clientes e '
-  +'parceiros o assunto é uma negociação — aí o participante não está na folha e você digita o nome.</p>'));
- const nova = el('<div class="seg" style="flex-wrap:wrap;margin-bottom:6px">'
-  + tiposReuniao().map(t=>'<button data-t="'+t.id+'">'+esc(t.nome)+'</button>').join('') + '</div>');
- m.append(nova);
- nova.querySelectorAll('button').forEach(b => b.onclick = () => {
-  const r = novaReuniao(b.dataset.t);
-  dados.reunioes.unshift(r); salvar(); render();
- });
-
  m.append(el('<h2>Histórico</h2>'));
- let fFam = '';
- const segF = el('<div class="seg" style="margin-bottom:8px">'
-  +'<button class="on" data-f="">Todas</button><button data-f="time">Com o time</button>'
-  +'<button data-f="externa">Sócios, clientes e parceiros</button></div>');
- const busca = el('<input class="search" type="search" placeholder="Buscar por assunto ou pessoa…" '
-  +'style="margin:0 0 10px" aria-label="Buscar reunião">');
- m.append(segF, busca);
- if(!lista.length){
-  m.append(el('<div class="empty">Nenhuma reunião registrada ainda. Escolha um tipo acima para começar.</div>'));
- }
- const hx = el('<div></div>'); m.append(hx);
- const pintaHist = () => {
+ const busca = el('<input class="search" type="search" placeholder="Buscar por assunto, pessoa ou texto…" '
+  +'style="margin-bottom:10px">');
+ const hx = el('<div></div>');
+ m.append(busca, hx);
+ const pinta = () => {
   hx.innerHTML='';
-  const termo = busca.value.toLowerCase();
-  segF.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.f===fFam));
-  lista.filter(r => (!fFam || (tipoPor(r.tipo).fam||'time')===fFam)
-   && (!termo || ((r.assunto||'')+' '+participantes(r)+' '+tipoPor(r.tipo).nome
-        +' '+Object.values(r.pontos||{}).join(' ')).toLowerCase().includes(termo)))
-  .forEach(r=>{
-  const t = tipoPor(r.tipo);
-  const preenchidos = Object.values(r.pontos||{}).filter(v=>(v||'').trim()).length;
-  const abertosR = (r.comp||[]).filter(c=>!c.feito).length;
-  linha(hx,
-   '<div class="hd"><span class="nm">'+esc(r.assunto || t.nome)
-    +(participantes(r)? ' — '+esc(participantes(r)) : '')+'</span>'
-    +'<span class="stat num">'+dbr(r.data)+'</span></div>'
-    +'<div class="sub"><span class="tag '+(ehTime(r)?'t-teal':'t-ochre')+'">'+esc(t.nome)+'</span> '
-    +preenchidos+' de '+t.pontos.length+' pontos escritos'
-    +(abertosR? ' · '+abertosR+' combinado'+(abertosR>1?'s':'')+' em aberto' : '')+'</div>',
-   host => {
-    host.append(el('<p class="mini" style="margin-top:12px">'+esc(t.desc)+'</p>'));
-    editorReuniao(host, r, salvar);
-    const ac = el('<div class="actions"><button class="btn ghost sm">Apagar esta reunião</button></div>');
-    ac.querySelector('button').onclick = () => {
-     paraLixeira('reuniao', r, (r.assunto || tipoPor(r.tipo).nome)
-       + (participantes(r)? ' — '+participantes(r) : ''));
-     dados.reunioes = dados.reunioes.filter(z=>z.id!==r.id); salvar(); render();
-    };
-    host.append(ac);
-   });
-  });
- };
- segF.querySelectorAll('button').forEach(b=>b.onclick=()=>{ fFam=b.dataset.f; pintaHist(); });
- busca.oninput = pintaHist;
- pintaHist();
-
- /* --- tipos configuráveis --- */
- m.append(el('<h2>Tipos de reunião</h2>'));
- m.append(el('<p class="lede">Os pontos de cada tipo são o roteiro da conversa. Edite para o formato que '
-  +'você usa — um ponto por linha.</p>'));
- const tx = el('<div></div>'); m.append(tx);
- const pintaTipos = () => {
-  tx.innerHTML='';
-  tiposReuniao().forEach((t,i)=>{
-   linha(tx,
-    '<div class="hd"><span class="nm">'+esc(t.nome)+'</span>'
-     +'<span class="stat num">'+t.pontos.length+' pontos</span></div>'
-     +'<div class="sub">'+esc(t.desc||'')+'</div>',
+  const t = busca.value.toLowerCase();
+  const f = L.filter(r => !t || ((r.assunto||'')+' '+(r.ata||'')+' '+(r.pessoas||[]).join(' ')
+    +' '+(r.tipo||'')).toLowerCase().includes(t));
+  if(!f.length){ hx.append(el('<div class="empty">Nada encontrado.</div>')); return; }
+  f.forEach(r=>{
+   const ab = (r.comp||[]).filter(c=>!c.feito).length;
+   linha(hx,
+    '<div class="hd"><span class="nm">'+esc(r.assunto||'sem assunto')+'</span>'
+     +'<span class="stat num">'+(r.data? dbr(r.data) : 'sem data')+'</span></div>'
+     +'<div class="sub">'+[esc(r.tipo||''), (r.pessoas||[]).map(esc).join(', '),
+        (r.comp||[]).length ? (r.comp.length)+' combinados'+(ab? ', '+ab+' em aberto':'') : '']
+        .filter(Boolean).join(' · ')+'</div>',
     host => {
-     host.append(el('<label>Nome</label>'));
-     const nm = el('<input class="search">'); nm.value = t.nome;
-     host.append(nm);
-     host.append(el('<label>Para que serve</label>'));
-     const de = el('<textarea rows="2"></textarea>'); de.value = t.desc||'';
-     host.append(de);
-     host.append(el('<label>Pontos, um por linha</label>'));
-     const po = el('<textarea rows="6"></textarea>'); po.value = t.pontos.join('\n');
-     host.append(po);
-     const ac = el('<div class="actions"><button class="btn sm">Salvar tipo</button>'
-       +'<button class="btn ghost sm" data-novo>Duplicar como novo</button></div>');
-     const gravar = (novo) => {
-      dados.tipos = tiposReuniao().map(z=>({...z}));
-      const pts = po.value.split('\n').map(x=>x.trim()).filter(Boolean);
-      if(novo) dados.tipos.push({id:'t'+Date.now(), nome:nm.value+' (cópia)', desc:de.value, pontos:pts});
-      else { const alvo = dados.tipos.find(z=>z.id===t.id);
-             alvo.nome = nm.value; alvo.desc = de.value; alvo.pontos = pts; }
-      salvar(); render();
-     };
-     ac.querySelector('.btn.sm').onclick = () => gravar(false);
-     ac.querySelector('[data-novo]').onclick = () => gravar(true);
-     host.append(ac);
+     if(r.ata) host.append(el('<p style="margin-top:12px;white-space:pre-wrap;font-size:14.5px">'
+       +esc(r.ata)+'</p>'));
+     if((r.comp||[]).length){
+      host.append(el('<h4 class="sec">Combinados</h4>'));
+      const cx = el('<div></div>');
+      r.comp.forEach(c=> cx.append(el('<div class="conv" style="grid-template-columns:auto 1fr">'
+       +'<span class="tag '+(c.feito?'t-teal':'t-ochre')+'">'+(c.feito?'feito':'aberto')+'</span>'
+       +'<span>'+esc(c.oque)+'</span></div>')));
+      host.append(cx);
+     }
+     if(r.link) host.append(el('<div class="actions"><a class="btn ghost sm" target="_blank" '
+       +'rel="noopener" href="'+esc(r.link)+'">Abrir no Trello</a></div>'));
     });
   });
  };
- pintaTipos();
+ busca.oninput = pinta;
+ pinta();
 }
 
 /* ---------------- matinal ---------------- */
@@ -4130,7 +3999,14 @@ function campoLivre(m, k, rot, ph){
    abertura, placar, objetivos, notícias, combinados, problemas e nota.
    O que faz a reunião funcionar não são os blocos: é que problema vira
    combinado com dono e prazo, e que a reunião se avalia no fim.            */
-const issues = () => (dados.issues||[]).filter(i => EMP.id==='grupo' || i.emp===EMP.id);
+const issues = () => {
+ if(REUNIOES_EXTERNAS()){
+  const lista = (D.trelloReunioes.reunioes||[]).filter(r=>/problema|pauta|impedimento/i.test(r.tipo||''));
+  return lista.map(r=>({id:r.id, texto:r.assunto, criado:r.data||HOJE, resolvido:false,
+    prioridade:(r.etiquetas||[]).some(e=>/urgent|alta/i.test(e))?1:0, link:r.link}));
+ }
+ return (dados.issues||[]).filter(i => EMP.id==='grupo' || i.emp===EMP.id);
+};
 const issuesAbertas = () => issues().filter(i=>!i.resolvido);
 
 function viewMatinal(m){
@@ -4217,22 +4093,9 @@ function viewMatinal(m){
 
  /* 6 — problemas, o coração da reunião */
  m.append(el('<h2>6 · Problemas <span class="mini">o resto do tempo</span></h2>'));
- m.append(el('<p class="lede">Lista tudo, escolhe os três que mais doem, resolve um de cada vez. '
-  +'Resolver significa <b>virar combinado com dono e prazo</b> — senão volta na semana seguinte.</p>'));
- const addI = el('<div class="addbar"><input class="search" placeholder="Qual é o problema… e Enter" '
-  +'aria-label="Novo problema"><button class="btn">Adicionar</button></div>');
- const inpI = addI.querySelector('input');
- const criarI = () => {
-  const t = inpI.value.trim(); if(!t) return;
-  dados.issues = dados.issues || [];
-  dados.issues.unshift({id:'i'+Date.now(), emp: EMP.id==='grupo'?'grupo':EMP.id,
-    texto:t, criado:HOJE, prioridade:0, resolvido:false});
-  inpI.value=''; salvar(); render();
- };
- inpI.onkeydown = e => { if(e.key==='Enter') criarI(); };
- addI.querySelector('button').onclick = criarI;
- m.append(addI);
-
+ m.append(el('<p class="lede">Os problemas vêm da lista <b>Problemas</b> do quadro de reuniões no '
+  +'Trello. Escolha os três que mais doem e resolva um de cada vez — resolver significa virar '
+  +'combinado, que é um item de checklist no cartão.</p>'));
  const abertas = issuesAbertas().sort((a,b)=> (b.prioridade||0)-(a.prioridade||0)
    || (a.criado < b.criado ? -1 : 1));
  const bxI = el('<div style="margin-top:12px"></div>');
@@ -4245,6 +4108,13 @@ function viewMatinal(m){
    +'<div class="sub">'+(idx<3? 'entre os três da rodada · ':'')+'aberto desde '+dbr(it.criado)
    +(it.idade? '' : '')+' · '+dif(it.criado, HOJE)+' dias</div></div>'
    +'<button class="btn ghost sm" data-res>Resolvido</button></div>');
+  if(REUNIOES_EXTERNAS()){
+   li.querySelector('.pri').onclick = () => { if(it.link) window.open(it.link,'_blank'); };
+   const b = li.querySelector('[data-res]');
+   b.textContent = 'Abrir';
+   b.onclick = () => { if(it.link) window.open(it.link,'_blank'); };
+   bxI.append(li); return;
+  }
   li.querySelector('.pri').onclick = () => { it.prioridade = it.prioridade? 0 : 1; salvar(); render(); };
   li.querySelector('[data-res]').onclick = () => {
    const t = prompt('O que ficou combinado para resolver isso? Deixe vazio para só marcar resolvido.');
