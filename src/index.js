@@ -7,6 +7,7 @@ import PAGINA from './pagina.html';
 ------------------------------------------------------------------- */
 
 const CHAVE_KV = 'dados:atual';
+const CHAVE_ESTADO = 'estado:grupo';   /* o que as pessoas digitam, compartilhado */
 const API = 'https://api.pipedrive.com';
 
 /* Quem é quem.
@@ -114,13 +115,8 @@ export async function montar(env) {
 
   /* usuários, funis e etapas */
   const usuarios = {};
-  const equipeAtiva = [];
   for (const u of (await pd(env, '/v1/users')).data || []) {
-    const nome = nomeCurto(u.name);
-    usuarios[u.id] = nome;
-    /* O histórico continua reconhecendo ex-colaboradores, mas a interface de
-       gestão recebe separadamente apenas quem está ativo no Pipedrive. */
-    if (![false, 0, '0', 'false', 'inactive'].includes(u.active_flag)) equipeAtiva.push(nome);
+    usuarios[u.id] = nomeCurto(u.name);
   }
   const funis = {};
   for (const p of await pdTodosV2(env, '/api/v2/pipelines')) funis[p.id] = funilCurto(p.name);
@@ -202,7 +198,7 @@ export async function montar(env) {
   }
 
   return {
-    negocios, resultado, ativ, equipeAtiva: [...new Set(equipeAtiva)], mortas: MORTAS, hoje,
+    negocios, resultado, ativ, mortas: MORTAS, hoje,
     janela: { ini: crs[0] || hoje, fim: hoje },
     meses,
     cobertura: {
@@ -269,6 +265,31 @@ export default {
       } catch (e) {
         return Response.json({ ok: false, erro: String(e.message || e) }, { status: 500 });
       }
+    }
+
+    /* Estado compartilhado: tarefas, contas, reuniões, objetivos, pauta, feedback,
+       lançamentos. Fica no servidor, não no navegador — senão cada pessoa vê um
+       número diferente e o financeiro do grupo deixa de existir. */
+    if (url.pathname === '/estado') {
+      if (req.method === 'GET') {
+        const bruto = await env.CENTRAL.get(CHAVE_ESTADO);
+        return Response.json(bruto ? JSON.parse(bruto) : { rev: 0, dados: {} });
+      }
+      if (req.method === 'PUT' || req.method === 'POST') {
+        const corpo = await req.json();
+        const atualBruto = await env.CENTRAL.get(CHAVE_ESTADO);
+        const atual = atualBruto ? JSON.parse(atualBruto) : { rev: 0, dados: {} };
+        /* Número de versão: se alguém salvou no meio do caminho, devolvemos o
+           estado atual em vez de sobrescrever o trabalho da outra pessoa. */
+        if (typeof corpo.rev === 'number' && corpo.rev !== atual.rev) {
+          return Response.json({ conflito: true, ...atual }, { status: 409 });
+        }
+        const novo = { rev: atual.rev + 1, dados: corpo.dados || {},
+          por: corpo.por || '', em: new Date().toISOString() };
+        await env.CENTRAL.put(CHAVE_ESTADO, JSON.stringify(novo));
+        return Response.json({ rev: novo.rev, em: novo.em });
+      }
+      return new Response('Método não suportado', { status: 405 });
     }
 
     if (url.pathname === '/saude') {
