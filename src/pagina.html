@@ -1990,6 +1990,28 @@ function blocoGrafico(m){
 /* ---------------- histórico do negócio ---------------- */
 /* O título da atividade vem do negócio. Só as atividades soltas guardam nome
    próprio — repetir o título em cada uma custava 31 KB no arquivo. */
+/* Um negócio esfria quando passa dos 7 dias sem contato real. Aqui a gente
+   reconstrói quando isso aconteceu e o que foi dito por último — que é a
+   pergunta real: não "está frio", e sim "esfriou por quê". */
+function historicoTemperatura(id){
+ const at = D.ativ.filter(x=>x.i===id).sort((a,b)=> (a.q+a.h) < (b.q+b.h) ? -1 : 1);
+ const reais = at.filter(x=>REAL.includes(x.t));
+ if(!reais.length) return {nunca:true, at};
+ const marcos = [];
+ for(let i=1;i<reais.length;i++){
+  const g = dif(reais[i-1].q, reais[i].q);
+  if(g > 7) marcos.push({de:reais[i-1], ate:reais[i], dias:g});
+ }
+ const ultimo = reais[reais.length-1];
+ const paradoHa = dif(ultimo.q, D.hoje);
+ return {at, reais, marcos, ultimo, paradoHa,
+   esfriouEm: paradoHa > 7 ? somaDias7(ultimo.q) : null};
+}
+function somaDias7(q){
+ const d = new Date(q+'T12:00:00'); d.setDate(d.getDate()+7);
+ return d.toISOString().slice(0,10);
+}
+
 function tituloAtiv(x){ return x.d || (fichaDe(x.i)||{}).t || ''; }
 
 function fichaDe(id){
@@ -2026,12 +2048,34 @@ function abrirHistorico(id, titulo){
      : '<p class="cliente sem">Nenhuma pessoa vinculada a este negócio</p>')
   + topo;
 
- const corpo = itens.length
+ /* por que esfriou */
+ const H = historicoTemperatura(id);
+ let temperatura = '';
+ if(H.nunca){
+  temperatura = '<div class="fonte-ext off"><b>Nunca teve contato real.</b> '
+   + 'Houve ' + itens.length + ' registro' + (itens.length===1?'':'s')
+   + ', mas nenhum de ligação, visita, reunião ou WhatsApp — os únicos que '
+   + 'garantem que alguém do outro lado respondeu.</div>';
+ } else {
+  const p = [];
+  p.push('Último contato real em <b>'+dbr(H.ultimo.q)+'</b>, por '+esc(H.ultimo.t)
+    +', há '+H.paradoHa+' dia'+(H.paradoHa===1?'':'s')+'.');
+  p.push(H.esfriouEm
+    ? 'Esfriou em <b>'+dbr(H.esfriouEm)+'</b>, quando completou 7 dias sem ninguém falar com ele.'
+    : 'Ainda dentro dos 7 dias — por isso segue quente.');
+  if(H.marcos.length) p.push('Já tinha esfriado '+H.marcos.length+' vez'
+    +(H.marcos.length>1?'es':'')+' antes: '
+    + H.marcos.map(m=>dbr(m.de.q)+' → '+dbr(m.ate.q)+', '+m.dias+' dias parado').join(' · ')+'.');
+  if(H.ultimo.n) p.push('A última coisa dita foi: <span class="sit">'+esc(H.ultimo.n)+'</span>');
+  temperatura = '<div class="fonte-ext'+(H.esfriouEm?' off':'')+'">'+p.join('<br>')+'</div>';
+ }
+
+ const corpo = temperatura + (itens.length
   ? '<div class="hist">' + itens.map((x,i)=>'<div class="it'+(i===0?' novo':'')+'">'
      +'<div class="cab"><b>'+esc(x.t)+'</b><span>'+x.q.slice(8,10)+'/'+x.q.slice(5,7)+'/'+x.q.slice(0,4)
      +(x.h? ' às '+x.h : '')+'</span><span>'+esc(x.a)+'</span></div><p>'
      +(x.n? esc(x.n) : '<span class="mini warn">sem anotação</span>')+'</p></div>').join('') + '</div>'
-  : '<div class="empty">Nenhuma atividade registrada no período carregado.</div>';
+  : '<div class="empty">Nenhuma atividade registrada no período carregado.</div>');
 
  const mask = el('<div class="mask"><div class="modal" role="dialog" aria-modal="true">'
   + cab
