@@ -35,6 +35,9 @@ button{font-family:inherit}
 /* ---------- topo ---------- */
 .top{position:sticky;top:0;z-index:30;background:var(--paper);
  border-bottom:1px solid var(--rule);padding:env(safe-area-inset-top) 16px 0}
+/* base: no celular não existe lateral. A regra vem antes da media query,
+   senão anula a versão de desktop e o conteúdo cai dentro da coluna vazia. */
+.lateral{display:none}
 @media(min-width:1000px){
  body{display:grid;grid-template-columns:230px 1fr;min-height:100vh}
  .lateral{display:flex;flex-direction:column;background:#0E2233;color:#C8D6E0;padding:22px 14px;
@@ -56,7 +59,6 @@ button{font-family:inherit}
  .top{padding-top:16px}
  .wrap{padding-left:26px;padding-right:26px}
 }
-.lateral{display:none}
 .top-in{max-width:900px;margin:0 auto}
 .brand{display:flex;align-items:center;justify-content:space-between;gap:10px;
  padding:14px 0 10px;max-height:70px;overflow:hidden;
