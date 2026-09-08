@@ -169,14 +169,17 @@ export async function montar(env) {
     if (!quem || vistos.has(a.id)) continue;
     vistos.add(a.id);
     const md = a.marked_as_done_time;
+    /* o título do negócio já existe em negocios[]: repeti-lo em cada atividade
+       custava 31 KB. Só guardamos quando a atividade não tem negócio. */
+    const idNeg = a.deal_id || 0;
     ativ.push({
-      i: a.deal_id || 0,
-      d: a.deal_title || a.person_name || a.org_name || '',
+      i: idNeg,
+      d: idNeg ? '' : (a.person_name || a.org_name || a.deal_title || ''),
       q: (md || a.due_date || '').slice(0, 10),
       h: md ? md.slice(11, 16) : (a.due_time || ''),
       t: (a.type_name || '').trim() || 'Sem tipo',
       a: quem,
-      n: limpaHtml(a.note).slice(0, 300),
+      n: limpaHtml(a.note).slice(0, 180),
     });
   }
   ativ.sort((a, b) => (a.q + a.h < b.q + b.h ? 1 : -1));
@@ -572,19 +575,29 @@ export default {
         negocios: d.negocios.length, fechados: d.resultado.length, atividades: d.ativ.length });
     }
 
-    /* a página */
+    /* a página.
+       Quase 1 MB é baixado a cada abertura, e o conteúdo só muda quando a
+       sincronização roda. Com ETag o navegador pergunta "mudou?" e recebe
+       um 304 vazio quando não mudou — a página abre na hora. */
     let bruto = await env.CENTRAL.get(CHAVE_KV);
     if (!bruto) bruto = JSON.stringify(await sincronizar(env));
 
+    let marca = '';
+    try { marca = JSON.parse(bruto).sincronizadoEm || ''; } catch (e) {}
+    const etag = '"' + (marca || String(bruto.length)) + '"';
+    const cabecalhos = {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'private, no-cache, must-revalidate',
+      etag,
+      'x-robots-tag': 'noindex, nofollow, noarchive',
+      'referrer-policy': 'no-referrer',
+      'x-content-type-options': 'nosniff',
+    };
+    if (req.headers.get('if-none-match') === etag) {
+      return new Response(null, { status: 304, headers: cabecalhos });
+    }
+
     const html = PAGINA.replace('__DADOS__', bruto);
-    return new Response(html, {
-      headers: {
-        'content-type': 'text/html; charset=utf-8',
-        'cache-control': 'no-store',
-        'x-robots-tag': 'noindex, nofollow, noarchive',
-        'referrer-policy': 'no-referrer',
-        'x-content-type-options': 'nosniff',
-      },
-    });
+    return new Response(html, { headers: cabecalhos });
   },
 };
