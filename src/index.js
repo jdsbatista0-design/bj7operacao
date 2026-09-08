@@ -66,6 +66,15 @@ function categoriaPerda(motivo, operacional) {
   return 'Outro';
 }
 
+/* A v2 devolve o código do tipo, não o rótulo. Estes são os tipos em uso. */
+const TIPOS = {call:'Ligação', meeting:'Reunião', task:'Tarefa', deadline:'Proposta',
+  email:'E-mail', lunch:'Follow-up', hellosend_sms:'WhatsApp', atividade:'Atividade',
+  visita:'Visita', whatsapp:'WhatsApp'};
+function tipoLegivel(a) {
+  if (a.type_name) return String(a.type_name).trim() || 'Sem tipo';
+  return TIPOS[a.type] || (a.type ? String(a.type) : 'Sem tipo');
+}
+
 function limpaHtml(t) {
   return (t || '').replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
@@ -159,13 +168,18 @@ export async function montar(env) {
   }
   resultado.sort((a, b) => (a.q < b.q ? 1 : -1));
 
-  /* atividades concluídas do ano corrente e do anterior */
+  /* Atividades pela v2.
+     A v1 está marcada para remoção e o filtro por data dela parou de responder:
+     devolvia vazio para hoje enquanto a v2 trazia as atividades normalmente.
+     Aqui puxamos por página e filtramos a data no nosso lado. */
   const ano = +hoje.slice(0, 4);
+  const inicio = (ano - 1) + '-01-01';
   const ativ = [];
   const vistos = new Set();
-  for (const a of await pdTodosV1(env, '/v1/activities',
-      { user_id: 0, done: 1, start_date: (ano - 1) + '-01-01', end_date: hoje })) {
-    const quem = usuarios[a.user_id];
+  for (const a of await pdTodosV2(env, '/api/v2/activities', { done: true })) {
+    const quando = (a.marked_as_done_time || a.due_date || '').slice(0, 10);
+    if (!quando || quando < inicio || quando > hoje) continue;
+    const quem = usuarios[a.owner_id ?? a.user_id];
     if (!quem || vistos.has(a.id)) continue;
     vistos.add(a.id);
     const md = a.marked_as_done_time;
@@ -175,9 +189,9 @@ export async function montar(env) {
     ativ.push({
       i: idNeg,
       d: idNeg ? '' : (a.person_name || a.org_name || a.deal_title || ''),
-      q: (md || a.due_date || '').slice(0, 10),
+      q: quando,
       h: md ? md.slice(11, 16) : (a.due_time || ''),
-      t: (a.type_name || '').trim() || 'Sem tipo',
+      t: tipoLegivel(a),
       a: quem,
       n: limpaHtml(a.note).slice(0, 180),
     });
