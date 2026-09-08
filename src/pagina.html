@@ -592,7 +592,7 @@ function calcular(){
   const meus = A.filter(x=>x.a===n);
   const porDeal = {};
   meus.forEach(x=>{ if(!x.i) return;
-   const o = porDeal[x.i] = porDeal[x.i] || {id:x.i, t:x.d, n:0, r:0, ult:'', tipos:{}};
+   const o = porDeal[x.i] = porDeal[x.i] || {id:x.i, t:tituloAtiv(x), n:0, r:0, ult:'', tipos:{}};
    o.n++; if(REAL.includes(x.t)) o.r++;
    o.tipos[x.t] = (o.tipos[x.t]||0)+1;
    if(x.q > o.ult) o.ult = x.q;
@@ -906,7 +906,7 @@ function regrasAlerta(){
    c:'Trabalho registrado que não aparece em funil nenhum: não conta em conversão, não vira '
      +'histórico do cliente e some da gestão.',
    a:'Ligar a atividade ao negócio na hora de registrar.',
-   lista: () => soltas.map(x=>({t:x.d||'(sem título)', e:x.t, p:0, r:1, cl:x.a}))},
+   lista: () => soltas.map(x=>({t:tituloAtiv(x)||'(sem título)', e:x.t, p:0, r:1, cl:x.a}))},
 
   {id:'sem_nota', n:'medio', t:nf(semNota.length)+' negócios contatados sem uma linha escrita',
    quando: semNota.length,
@@ -958,7 +958,7 @@ function viewAlertas(m){
            {k:'t', h:'Canal', f:z=>'<span class="tag '+(REAL.includes(z.t)?'t-teal':'t-gray')+'">'
               +esc(z.t)+'</span>'},
            {k:'d', h:'Negócio', f:z=> z.i? '<button type="button" class="lnk" data-id="'+z.i
-              +'" data-t="'+esc(z.d)+'">'+esc(z.d)+'</button>'
+              +'" data-t="'+esc(tituloAtiv(z))+'">'+esc(tituloAtiv(z))+'</button>'
               : '<span class="mini warn">sem negócio</span>'},
            {k:'cl', h:'Cliente', f:z=> z.cl? esc(z.cl) : '—'},
            {k:'n', h:'Anotação', f:z=> z.n ? '<span class="sit">'+esc(z.n)+'</span>' : '—'},
@@ -1580,7 +1580,7 @@ function detalhePessoa(host, n){
     {k:'t', h:'Canal', f:x=>'<span class="tag '+(REAL.includes(x.t)?'t-teal':'t-gray')+'">'+esc(x.t)+'</span>'},
     {k:'d', h:'Negócio', f:x=> !x.i ? '<span class="mini warn">sem negócio ligado</span>'
       : (fichaDe(x.i) ? '<button type="button" class="lnk" data-id="'+x.i+'" data-t="'+esc(x.d)+'">'
-          +esc(x.d)+'</button>' : esc(x.d)+'<div class="mini warn">negócio removido</div>')},
+          +esc(x.d)+'</button>' : esc(tituloAtiv(x))+'<div class="mini warn">negócio removido</div>')},
     {k:'cl', h:'Cliente', f:x=> x.cl ? esc(x.cl) : '<span class="mini warn">sem pessoa</span>'},
     {k:'n', h:'O que foi conversado', f:x=> x.n ? '<span class="sit">'+esc(x.n)+'</span>'
       : '<span class="mini warn">nada escrito</span>'},
@@ -1948,7 +1948,7 @@ function grafico(host, metrica){
       {k:'t', h:'Canal', f:x=>'<span class="tag '+(REAL.includes(x.t)?'t-teal':'t-gray')+'">'
          +esc(x.t)+'</span>'},
       {k:'d', h:'Negócio', f:x=> x.i
-        ? '<button type="button" class="lnk" data-id="'+x.i+'" data-t="'+esc(x.d)+'">'+esc(x.d)+'</button>'
+        ? '<button type="button" class="lnk" data-id="'+x.i+'" data-t="'+esc(tituloAtiv(x))+'">'+esc(tituloAtiv(x))+'</button>'
         : '<span class="mini warn">solta</span>'},
       {k:'cl', h:'Cliente', f:x=> x.cl ? esc(x.cl) : '<span class="mini warn">sem pessoa</span>'},
       {k:'n', h:'O que foi conversado', f:x=> x.n ? '<span class="sit">'+esc(x.n)+'</span>'
@@ -1988,6 +1988,10 @@ function blocoGrafico(m){
 }
 
 /* ---------------- histórico do negócio ---------------- */
+/* O título da atividade vem do negócio. Só as atividades soltas guardam nome
+   próprio — repetir o título em cada uma custava 31 KB no arquivo. */
+function tituloAtiv(x){ return x.d || (fichaDe(x.i)||{}).t || ''; }
+
 function fichaDe(id){
  return D.negocios.find(x=>String(x.id)===String(id))
      || D.resultado.find(x=>String(x.id)===String(id)) || null;
@@ -2434,7 +2438,7 @@ function cadenciaDe(A){
  const g = {};
  A.forEach(x=>{
   if(!x.i) return;
-  const o = g[x.i] = g[x.i] || {id:x.i, t:x.d, datas:[], canais:{}, notas:0, r:0};
+  const o = g[x.i] = g[x.i] || {id:x.i, t:tituloAtiv(x), datas:[], canais:{}, notas:0, r:0};
   o.datas.push(x.q);
   if(REAL.includes(x.t)) o.r++;
   o.canais[x.t] = (o.canais[x.t]||0)+1;
