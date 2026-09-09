@@ -183,12 +183,20 @@ export async function montar(env) {
     if (!quem || vistos.has(a.id)) continue;
     vistos.add(a.id);
     const md = a.marked_as_done_time;
-    /* o título do negócio já existe em negocios[]: repeti-lo em cada atividade
-       custava 31 KB. Só guardamos quando a atividade não tem negócio. */
+    /* O título do negócio já existe em negocios[]: repeti-lo em cada atividade
+       custava 31 KB. Só guardamos quando a atividade não tem negócio.
+       A v2 não devolve o nome da pessoa, só o id — por isso resolvemos aqui,
+       senão a atividade ligada a uma pessoa aparecia como "sem pessoa". */
     const idNeg = a.deal_id || 0;
+    const idPes = a.person_id || (a.participants || [])
+      .filter(x => x.primary).map(x => x.person_id)[0] || 0;
+    const pes = idPes ? pessoas[idPes] : null;
     ativ.push({
       i: idNeg,
-      d: idNeg ? '' : (a.person_name || a.org_name || a.deal_title || ''),
+      p: idPes || 0,
+      cl: pes ? pes.n : '',
+      tel: pes ? pes.t : '',
+      d: idNeg ? '' : (pes ? pes.n : (a.subject || '')),
       q: quando,
       h: md ? md.slice(11, 16) : (a.due_time || ''),
       t: tipoLegivel(a),
