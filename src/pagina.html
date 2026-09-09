@@ -953,7 +953,7 @@ function viewAlertas(m){
           +'<div class="sub">'+d.itens.length+' atividades'
           +(fora_.length? ' · '+fora_.length+' fora do horário' : '')
           +(d.maiorPausa!==null? ' · maior pausa de '+d.maiorPausa+' min' : '')+'</div>',
-          h3 => tabela(h3, (fora_.length? fora_ : d.itens).map(z=>({...z, cl:(fichaDe(z.i)||{}).cl||''})), [
+          h3 => tabela(h3, (fora_.length? fora_ : d.itens).map(z=>({...z, cl:clienteAtiv(z)})), [
            {k:'h', h:'Hora'},
            {k:'t', h:'Canal', f:z=>'<span class="tag '+(REAL.includes(z.t)?'t-teal':'t-gray')+'">'
               +esc(z.t)+'</span>'},
@@ -1574,7 +1574,7 @@ function detalhePessoa(host, n){
   seg.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.m===modo));
   alvo.innerHTML='';
   if(modo==='ativ'){
-   tabela(alvo, minhas.map(x=>({...x, cl:(fichaDe(x.i)||{}).cl||''})), [
+   tabela(alvo, minhas.map(x=>({...x, cl:clienteAtiv(x)})), [
     {k:'q', h:'Quando', f:x=> x.q.slice(8,10)+'/'+x.q.slice(5,7)
       +(x.h? '<div class="mini">'+x.h+'</div>' : '<div class="mini warn">sem hora</div>')},
     {k:'t', h:'Canal', f:x=>'<span class="tag '+(REAL.includes(x.t)?'t-teal':'t-gray')+'">'+esc(x.t)+'</span>'},
@@ -1942,7 +1942,7 @@ function grafico(host, metrica){
       + (doPer.length ? negs+' negócios em '+doPer.length+' atividades'
          : (S.fds[i] ? 'fim de semana, sem registro' : 'nenhum registro'));
     if(doPer.length){
-     tabela(detalhe, doPer.map(x=>({...x, cl:(fichaDe(x.i)||{}).cl||''})), [
+     tabela(detalhe, doPer.map(x=>({...x, cl:clienteAtiv(x)})), [
       {k:'q', h:'Quando', f:x=> x.q.slice(8,10)+'/'+x.q.slice(5,7)
         +(x.h?'<div class="mini">'+x.h+'</div>':'')},
       {k:'t', h:'Canal', f:x=>'<span class="tag '+(REAL.includes(x.t)?'t-teal':'t-gray')+'">'
@@ -2013,6 +2013,10 @@ function somaDias7(q){
 }
 
 function tituloAtiv(x){ return x.d || (fichaDe(x.i)||{}).t || ''; }
+/* Cliente da atividade: o do negócio quando há negócio; senão a pessoa que foi
+   vinculada à própria atividade. Antes eu só olhava o negócio, então atividade
+   ligada a uma pessoa aparecia como "sem pessoa". */
+function clienteAtiv(x){ return (fichaDe(x.i)||{}).cl || x.cl || ''; }
 
 function fichaDe(id){
  return D.negocios.find(x=>String(x.id)===String(id))
@@ -2606,7 +2610,7 @@ function viewAtividades(m){
 
   if(modo==='ativ' || modo==='solta'){
    const rows = A.filter(x=> filtroA(x) && (modo!=='solta' || !x.i))
-     .map(x=>({...x, cl:(fichaDe(x.i)||{}).cl||''}));
+     .map(x=>({...x, cl:clienteAtiv(x)}));
    titulo.innerHTML = '<b>'+nf(rows.length)+'</b> atividades'
      + (modo==='solta' ? ' sem negócio ligado — não aparecem em funil nenhum' : '')
      + (fA?', de '+fA:'') + (fT?', do canal '+fT:'');
@@ -2614,7 +2618,9 @@ function viewAtividades(m){
     {k:'q', h:'Quando', f:x=> x.q.slice(8,10)+'/'+x.q.slice(5,7)+'/'+x.q.slice(2,4)
       +(x.h?'<div class="mini">'+x.h+'</div>':'')},
     {k:'t', h:'Canal', f:x=>'<span class="tag '+(REAL.includes(x.t)?'t-teal':'t-gray')+'">'+esc(x.t)+'</span>'},
-    {k:'d', h:'Negócio', f:x=> !x.i ? '<span class="mini warn">solta</span>'
+    {k:'d', h:'Negócio', f:x=> !x.i
+      ? (x.cl ? '<span class="mini">só na pessoa</span>'
+              : '<span class="mini warn">sem negócio nem pessoa</span>')
       : (fichaDe(x.i) ? '<button type="button" class="lnk" data-id="'+x.i+'" data-t="'+esc(x.d)+'">'
           +esc(x.d)+'</button>'
         : esc(x.d)+'<div class="mini warn">negócio removido do Pipedrive</div>')},
