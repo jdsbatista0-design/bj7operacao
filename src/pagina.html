@@ -1118,6 +1118,69 @@ function tabelaPaineis(host, rows){
 }
 
 /* ---------------- views ---------------- */
+/* O mesmo tratamento que demos aos motivos de perda, agora nas conversas:
+   agrupar por assunto para ver o padrão, com a lista atrás de cada barra.
+   É leitura de palavra, não julgamento — por isso cada tema abre as atividades
+   que o geraram, para você conferir. */
+const TEMAS = [
+ ['Aguardando retorno', /(aguard|esperando|ficou de|vai retornar|retorna)/i],
+ ['Sem retorno',        /(n[ãa]o respond|sem retorno|n[ãa]o atende|sumiu|n[ãa]o consegui falar)/i],
+ ['Enviou material',    /(mandei|enviei|encaminhei|m[íi]dia kit|op[çc][õo]es|tabela|fotos)/i],
+ ['Visita ou reunião',  /(visit|reuni[ãa]o|agendad|marcar|marcamos|call)/i],
+ ['Proposta e preço',   /(propost|pre[çc]o|valor|desconto|condi[çc][ãa]o|parcel|entrada)/i],
+ ['Documentação',       /(document|matr[íi]cula|certid|contrato|assinatur|cpf|escritura)/i],
+ ['Sem interesse',      /(sem interesse|n[ãa]o tem interesse|n[ãa]o quer|desist|j[áa] comprou)/i],
+ ['Negociando',         /(negoci|analisando|avaliando|pensando|estudando)/i],
+];
+function temasDaConversa(){
+ const comNota = V.A.filter(x=>(x.n||'').trim());
+ const out = TEMAS.map(([nome, re])=>({nome, re, itens: comNota.filter(x=>re.test(x.n))}))
+   .filter(t=>t.itens.length).sort((a,b)=>b.itens.length-a.itens.length);
+ const classificadas = new Set(out.flatMap(t=>t.itens));
+ const resto = comNota.filter(x=>!classificadas.has(x));
+ return {out, comNota, resto, semNota: V.A.length - comNota.length};
+}
+
+function blocoConversas(m){
+ const T = temasDaConversa();
+ m.append(el('<h2>O que foi conversado</h2>'));
+ if(!T.comNota.length){
+  m.append(el('<div class="empty">Nenhuma atividade do período tem anotação. '
+   +'Sem uma linha escrita, não há o que ler.</div>'));
+  return;
+ }
+ m.append(el('<p class="lede">As <b>'+nf(T.comNota.length)+'</b> anotações do período agrupadas por '
+  +'assunto. É busca por palavra, então uma anotação pode entrar em mais de um tema — serve para ver '
+  +'o padrão, não para somar. Toque para ler as conversas.</p>'));
+ const max = T.out.length ? T.out[0].itens.length : 1;
+ const bx = el('<div></div>');
+ T.out.forEach(t=>{
+  linha(bx,
+   '<div class="hd"><span class="nm">'+esc(t.nome)+'</span>'
+    +'<span class="stat num">'+t.itens.length+' · '+Math.round(t.itens.length/T.comNota.length*100)+'%</span></div>'
+    +'<div class="bar"><i class="'+(/Sem retorno|Sem interesse/.test(t.nome)?'':'dim')
+    +'" style="width:'+Math.max(t.itens.length/max*100,2)+'%"></i></div>',
+   host => tabela(host, t.itens.map(x=>({...x, cl:clienteAtiv(x)})), [
+    {k:'q', h:'Quando', f:x=> x.q.slice(8,10)+'/'+x.q.slice(5,7)
+      +(x.h?'<div class="mini">'+x.h+'</div>':'')},
+    {k:'t', h:'Canal', f:x=>'<span class="tag '+(REAL.includes(x.t)?'t-teal':'t-gray')+'">'+esc(x.t)+'</span>'},
+    {k:'d', h:'Negócio', f:x=> x.i
+      ? '<button type="button" class="lnk" data-id="'+x.i+'" data-t="'+esc(tituloAtiv(x))+'">'
+        +esc(tituloAtiv(x))+'</button>'
+      : (x.cl ? '<span class="mini">só na pessoa</span>'
+              : '<span class="mini warn">sem negócio nem pessoa</span>')},
+    {k:'cl', h:'Cliente', f:x=> x.cl ? esc(x.cl) : '<span class="mini warn">sem pessoa</span>'},
+    {k:'n', h:'O que foi conversado', f:x=>'<span class="sit">'+esc(x.n)+'</span>'},
+    {k:'a', h:'Quem'},
+   ], '', 'atividades'));
+ });
+ m.append(bx);
+ if(T.resto.length) m.append(el('<p class="mini" style="margin-top:10px"><b>'+T.resto.length
+  +'</b> anotações não caíram em nenhum tema.</p>'));
+ if(T.semNota) m.append(el('<p class="lede" style="margin-top:10px"><b>'+nf(T.semNota)
+  +'</b> atividades do período não têm uma linha escrita. Sobre essas não dá para saber nada.</p>'));
+}
+
 function viewResumo(m){
  const T = totais();
  m.append(cartoes([
@@ -1157,6 +1220,8 @@ function viewResumo(m){
  });
 
  blocoGrafico(m);
+
+ blocoConversas(m);
 
  m.append(el('<h2>Funil no período</h2>'));
  m.append(tabelaFunil());
