@@ -75,6 +75,17 @@ function tipoLegivel(a) {
   return TIPOS[a.type] || (a.type ? String(a.type) : 'Sem tipo');
 }
 
+/* O Pipedrive devolve tudo em UTC. Brasília é UTC-3 e não tem mais horário de
+   verão desde 2019, então o deslocamento é fixo. Sem isso a hora aparece 3h
+   adiantada — e o que foi feito às 22h vira atividade do dia seguinte. */
+function emBrasilia(iso) {
+  if (!iso) return { q: '', h: '' };
+  const d = new Date(String(iso).replace(' ', 'T').replace(/Z?$/, 'Z'));
+  if (isNaN(d)) return { q: String(iso).slice(0, 10), h: '' };
+  const local = new Date(d.getTime() - 3 * 3600 * 1000);
+  return { q: local.toISOString().slice(0, 10), h: local.toISOString().slice(11, 16) };
+}
+
 function limpaHtml(t) {
   return (t || '').replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
@@ -120,7 +131,7 @@ async function pdTodosV1(env, caminho, params = {}) {
 /* ---------- montagem do conjunto de dados ---------- */
 
 export async function montar(env) {
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = emBrasilia(new Date().toISOString()).q;
 
   /* usuários, funis e etapas */
   const usuarios = {};
@@ -150,13 +161,13 @@ export async function montar(env) {
     const base = {
       id: d.id, t: d.title, e: et.nome, f: et.funil,
       d: usuarios[d.owner_id] || '—',
-      cl: p.n, tel: p.t, cr: (d.add_time || '').slice(0, 10),
+      cl: p.n, tel: p.t, cr: emBrasilia(d.add_time).q,
     };
     if (d.status === 'open') {
       negocios.push({ ...base, av: AVANCADAS.includes(et.nome) ? 1 : 0,
-        u: (d.update_time || '').slice(0, 10) });
+        u: emBrasilia(d.update_time).q });
     } else {
-      const fim = (d.won_time || d.lost_time || d.close_time || '').slice(0, 10);
+      const fim = emBrasilia(d.won_time || d.lost_time || d.close_time).q;
       const motivo = d.lost_reason || '';
       const op = d.status === 'lost' &&
         (REGRA_OPERACIONAL.test(motivo) || motivo.trim().length < 5);
@@ -177,12 +188,15 @@ export async function montar(env) {
   const ativ = [];
   const vistos = new Set();
   for (const a of await pdTodosV2(env, '/api/v2/activities', { done: true })) {
-    const quando = (a.marked_as_done_time || a.due_date || '').slice(0, 10);
+    /* data e hora em Brasília antes de qualquer filtro: o que foi feito às 22h
+       estava virando atividade do dia seguinte. */
+    const md = a.marked_as_done_time;
+    const br = md ? emBrasilia(md) : { q: (a.due_date || '').slice(0, 10), h: a.due_time || '' };
+    const quando = br.q;
     if (!quando || quando < inicio || quando > hoje) continue;
     const quem = usuarios[a.owner_id ?? a.user_id];
     if (!quem || vistos.has(a.id)) continue;
     vistos.add(a.id);
-    const md = a.marked_as_done_time;
     /* O título do negócio já existe em negocios[]: repeti-lo em cada atividade
        custava 31 KB. Só guardamos quando a atividade não tem negócio.
        A v2 não devolve o nome da pessoa, só o id — por isso resolvemos aqui,
@@ -198,7 +212,7 @@ export async function montar(env) {
       tel: pes ? pes.t : '',
       d: idNeg ? '' : (pes ? pes.n : (a.subject || '')),
       q: quando,
-      h: md ? md.slice(11, 16) : (a.due_time || ''),
+      h: br.h,
       t: tipoLegivel(a),
       a: quem,
       n: limpaHtml(a.note).slice(0, 180),
