@@ -191,7 +191,11 @@ export async function montar(env) {
     /* data e hora em Brasília antes de qualquer filtro: o que foi feito às 22h
        estava virando atividade do dia seguinte. */
     const md = a.marked_as_done_time;
-    const br = md ? emBrasilia(md) : { q: (a.due_date || '').slice(0, 10), h: a.due_time || '' };
+    /* due_time também vem em UTC. Quando a atividade está concluída mas sem
+       marked_as_done_time, era esse campo que voltava a mostrar a hora errada. */
+    const br = md ? emBrasilia(md)
+      : (a.due_date ? emBrasilia(a.due_date + 'T' + (a.due_time || '00:00') + ':00')
+                    : { q: '', h: '' });
     const quando = br.q;
     if (!quando || quando < inicio || quando > hoje) continue;
     const quem = usuarios[a.owner_id ?? a.user_id];
@@ -251,6 +255,8 @@ export async function montar(env) {
     cobertura: {
       ativDe: qs[0] || hoje, ativAte: qs[qs.length - 1] || hoje,
       negDe: crs[0] || hoje,
+      fuso: 'America/Sao_Paulo (UTC-3)',
+      exemploHora: ativ.length ? ativ[0].q + ' ' + ativ[0].h : '',
       orfas: ativ.filter(x => x.i && !idsVivos.has(x.i)).length,
       orfasIds,
     },
