@@ -4698,6 +4698,8 @@ document.getElementById('cobertura').innerHTML =
  +' nenhuma atividade foi lançada no sistema</div>'
  +(COB.orfas? '<div class="cl"><span>'+COB.orfas+' atividades</span> apontam para negócios que foram '
   +'apagados do Pipedrive. Ficam na lista, sem ficha para abrir</div>' : '')
+ +(COB.fuso ? '<div class="cl"><span>Horários</span> convertidos para '+esc(COB.fuso)
+  +(COB.exemploHora? '. A atividade mais recente é de '+esc(COB.exemploHora) : '')+'</div>' : '')
  +'<div class="cl"><span>Valores</span> em reais ficam fora de todo o painel: o campo valor do Pipedrive '
  +'está inconsistente e não é confiável</div>';
 
